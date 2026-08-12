@@ -1,0 +1,368 @@
+/*
+ * components/styles.css —— UI 样式（注入 Shadow DOM，与页面隔离）
+ *
+ * 设计：跟随系统深浅色（prefers-color-scheme），毛玻璃质感，
+ * 小字号、圆角、克制的阴影 —— 悬浮在页面上不抢内容。
+ */
+
+:host {
+  all: initial;
+}
+
+.wa-app {
+  --wa-bg: rgba(255, 255, 255, 0.94);
+  --wa-bg-solid: #ffffff;
+  --wa-text: #1f2328;
+  --wa-text-dim: #6b7280;
+  --wa-border: rgba(15, 23, 42, 0.1);
+  --wa-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  --wa-accent: #4f6ef2;
+  --wa-accent-soft: rgba(79, 110, 242, 0.12);
+  --wa-danger: #e5484d;
+  --wa-hover: rgba(15, 23, 42, 0.06);
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--wa-text);
+  box-sizing: border-box;
+  z-index: 2147483647;
+}
+
+@media (prefers-color-scheme: dark) {
+  .wa-app {
+    --wa-bg: rgba(24, 26, 32, 0.94);
+    --wa-bg-solid: #1a1c22;
+    --wa-text: #e7e9ee;
+    --wa-text-dim: #9aa1ad;
+    --wa-border: rgba(255, 255, 255, 0.1);
+    --wa-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+    --wa-hover: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.wa-app *,
+.wa-app *::before,
+.wa-app *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.wa-app button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* ---------------- 悬浮菜单 ---------------- */
+
+.wa-menu {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--wa-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: 12px;
+  box-shadow: var(--wa-shadow);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  animation: wa-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+}
+
+@keyframes wa-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wa-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+.wa-menu-item:hover {
+  background: var(--wa-hover);
+}
+
+.wa-menu-item:active {
+  background: var(--wa-accent-soft);
+}
+
+.wa-menu-item svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+/* ---------------- 结果面板 ---------------- */
+
+.wa-panel {
+  position: fixed;
+  width: 420px;
+  max-width: min(92vw, 420px);
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--wa-bg);
+  border: 1px solid var(--wa-border);
+  border-radius: 16px;
+  box-shadow: var(--wa-shadow);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  overflow: hidden;
+  animation: wa-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top left;
+}
+
+.wa-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px 8px 14px;
+  border-bottom: 1px solid var(--wa-border);
+}
+
+.wa-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wa-panel-title .wa-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--wa-accent);
+  background: var(--wa-accent-soft);
+  padding: 1px 8px;
+  border-radius: 99px;
+}
+
+.wa-panel-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 13.5px;
+  word-break: break-word;
+}
+
+/* 流式中的光标 */
+.wa-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--wa-accent);
+  animation: wa-blink 1s steps(2, start) infinite;
+}
+
+@keyframes wa-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.wa-empty {
+  color: var(--wa-text-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 18px 0;
+}
+
+.wa-error {
+  color: var(--wa-danger);
+  font-size: 12.5px;
+  background: rgba(229, 72, 77, 0.08);
+  border: 1px solid rgba(229, 72, 77, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+}
+
+/* 提问输入框 */
+.wa-ask-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wa-ask-form textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--wa-bg-solid);
+  border: 1px solid var(--wa-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.wa-ask-form textarea:focus {
+  border-color: var(--wa-accent);
+}
+
+.wa-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--wa-border);
+}
+
+.wa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--wa-text-dim);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.wa-btn:hover {
+  background: var(--wa-hover);
+  color: var(--wa-text);
+}
+
+.wa-btn.primary {
+  color: #fff;
+  background: var(--wa-accent);
+}
+
+.wa-btn.primary:hover {
+  background: var(--wa-accent);
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+.wa-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wa-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 收藏按钮：激活态高亮 + 点击脉冲动画 */
+.wa-btn.wa-fav.active {
+  color: #e5484d;
+}
+
+.wa-btn.wa-fav.active:hover {
+  color: #e5484d;
+}
+
+.wa-fav-pulse {
+  animation: wa-heart 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes wa-heart {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+
+/* ---------------- Markdown 渲染 ---------------- */
+
+.wa-md p {
+  margin: 0 0 8px;
+}
+
+.wa-md p:last-child {
+  margin-bottom: 0;
+}
+
+.wa-md h1, .wa-md h2, .wa-md h3, .wa-md h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+.wa-md h1 { font-size: 15px; }
+.wa-md h2 { font-size: 14.5px; }
+
+.wa-md ul, .wa-md ol {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.wa-md li {
+  margin: 2px 0;
+}
+
+.wa-md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: var(--wa-hover);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.wa-md pre {
+  background: var(--wa-bg-solid);
+  border: 1px solid var(--wa-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+
+.wa-md pre code {
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wa-md a {
+  color: var(--wa-accent);
+  text-decoration: none;
+}
+
+.wa-md a:hover {
+  text-decoration: underline;
+}
+
+.wa-md strong { font-weight: 600; }
+.wa-md em { font-style: italic; }
+.wa-md del { opacity: 0.6; }
+
+.wa-md blockquote {
+  border-left: 3px solid var(--wa-accent);
+  padding-left: 10px;
+  margin: 0 0 8px;
+  color: var(--wa-text-dim);
+}
+
+.wa-md hr {
+  border: none;
+  border-top: 1px solid var(--wa-border);
+  margin: 10px 0;
+}

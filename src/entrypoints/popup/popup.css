@@ -1,0 +1,49 @@
+/* entrypoints/popup/popup.css —— Popup 专用容器样式 */
+
+html,
+body {
+  width: 680px;
+  min-height: 480px;
+}
+
+body {
+  overflow: hidden;
+}
+
+.popup {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  flex-shrink: 0;
+}
+
+.popup-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.popup-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 14px 28px;
+}
+
+.popup-scroll .page {
+  max-width: none;
+  padding: 0;
+}
+
+/* popup 内卡片间距收紧，内容尽量一屏装下 */
+.popup-scroll .card {
+  padding: 16px;
+  margin-bottom: 12px;
+}
