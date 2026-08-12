@@ -6,10 +6,10 @@
  * - 自定义 Action 的增删改只操作 chrome.storage（经 storage 层）
  * Content Script 无需知道区别 —— 对 UI 来说它们都是 Action。
  */
-import type { Action, ActionOverride, Settings } from '@/core/types'
+import type { Action, ActionOverride, PublicSettings } from '@/core/types'
 import { BUILTIN_ACTIONS } from './builtin'
 
-export type ActionOverrides = Settings['actionOverrides']
+export type ActionOverrides = PublicSettings['actionOverrides']
 
 /** 汇总菜单要显示的 actions：内置在前（应用覆盖），自定义在后 */
 export function collectActions(customActions: Action[], overrides: ActionOverrides = {}): Action[] {

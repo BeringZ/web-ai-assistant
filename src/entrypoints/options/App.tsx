@@ -13,15 +13,17 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { browser } from 'wxt/browser'
-import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, ProviderConfig, Settings } from '@/core/types'
-import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderConfig } from '@/core/types'
+import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, ProviderSettings, PublicSettings } from '@/core/types'
+import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderSettings } from '@/core/types'
 import {
   getCollections,
-  getSettings,
+  getProviderSettings,
+  getPublicSettings,
   getUserDictionaryWords,
   removeCollection,
   replaceCollections,
-  saveSettings,
+  saveProviderSettings,
+  savePublicSettings,
   setUserDictionaryWords,
 } from '@/core/storage'
 import { collectActions, createCustomAction } from '@/actions/manager'
@@ -39,11 +41,11 @@ import type { BackgroundToOptions } from '@/core/messaging'
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
 
 export function SettingsPanel() {
-  const [provider, setProvider] = useState<ProviderConfig>(defaultProviderConfig())
+  const [provider, setProvider] = useState<ProviderSettings>(defaultProviderSettings())
   const [contextLevel, setContextLevel] = useState<ContextLevel>('nearby')
   const [panelCloseMode, setPanelCloseMode] = useState<PanelCloseMode>('manual')
   const [customActions, setCustomActions] = useState<Action[]>([])
-  const [overrides, setOverrides] = useState<Settings['actionOverrides']>({})
+  const [overrides, setOverrides] = useState<PublicSettings['actionOverrides']>({})
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -59,14 +61,14 @@ export function SettingsPanel() {
   const dictFileRef = useRef<HTMLInputElement>(null)
   const colFileRef = useRef<HTMLInputElement>(null)
 
-  /** 内置 + 用户合并后的完整词库（用于展示/导出） */
-  const allWords = mergeDictionary(userWords, BUILTIN_WORDS)
+  /** 内置 + 用户合并后的完整词库（用于展示）：用户词库在后 → 同名覆盖内置 */
+  const allWords = mergeDictionary(BUILTIN_WORDS, userWords)
   /** 内置（应用覆盖后）+ 自定义 的汇总，用于列表展示与菜单一致 */
   const allActions = collectActions(customActions, overrides)
 
   useEffect(() => {
-    getSettings().then((s) => {
-      setProvider(s.provider)
+    Promise.all([getProviderSettings(), getPublicSettings()]).then(([p, s]) => {
+      setProvider(p)
       setContextLevel(s.contextLevel)
       setCustomActions(s.actions)
       setOverrides(s.actionOverrides)
@@ -77,13 +79,14 @@ export function SettingsPanel() {
     getCollections().then(setCollections)
   }, [])
 
-  const patchProvider = (patch: Partial<ProviderConfig>) =>
+  const patchProvider = (patch: Partial<ProviderSettings>) =>
     setProvider((p) => ({ ...p, ...patch }))
 
   const save = async () => {
     setSaving(true)
     try {
-      await saveSettings({ provider, contextLevel, actions: customActions, actionOverrides: overrides, panelCloseMode })
+      await saveProviderSettings(provider)
+      await savePublicSettings({ contextLevel, actions: customActions, actionOverrides: overrides, panelCloseMode })
       setSaved(true)
       setTimeout(() => setSaved(false), 1600)
     } finally {
@@ -162,11 +165,12 @@ export function SettingsPanel() {
 
   /* ---- 词库导入导出 ---- */
 
+  /** 只导出用户词库（不含内置）：避免旧版内置词库被当作用户数据导入后遮盖新版内置 */
   const exportDictionary = () => {
     downloadJson('web-ai-dictionary.json', {
       type: 'web-ai-dictionary',
       version: 1,
-      words: allWords,
+      words: userWords,
     })
   }
 

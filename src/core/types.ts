@@ -59,9 +59,11 @@ export type ActionOverride = Partial<Pick<Action, 'name' | 'prompt'>>
 /** 结果面板关闭方式：手动点关闭按钮 / 点击面板外部自动关闭 */
 export type PanelCloseMode = 'manual' | 'auto'
 
-/** 扩展整体设置（Options 页编辑，background 消费） */
-export interface Settings {
-  provider: ProviderConfig
+/**
+ * 公开设置：Content Script 可以读取的部分（不含任何密钥）。
+ * 存 storage 的 `public_settings` key。
+ */
+export interface PublicSettings {
   /** 默认上下文级别 */
   contextLevel: ContextLevel
   /** 自定义 Actions（内置 action 由代码提供，不落存储） */
@@ -72,6 +74,12 @@ export interface Settings {
   panelCloseMode: PanelCloseMode
 }
 
+/**
+ * Provider 密钥配置：仅 Options/Popup 与 Service Worker 可访问。
+ * 存 storage 的 `provider_settings` key；Content Script 不 import 其读取方法。
+ */
+export type ProviderSettings = ProviderConfig
+
 export const DEFAULT_CONTEXT_LEVEL: ContextLevel = 'nearby'
 export const DEFAULT_PANEL_CLOSE_MODE: PanelCloseMode = 'manual'
 
@@ -80,7 +88,7 @@ export const PANEL_CLOSE_MODE_LABELS: Record<PanelCloseMode, string> = {
   auto: '自动关闭（点击输出框外）',
 }
 
-export function defaultProviderConfig(): ProviderConfig {
+export function defaultProviderSettings(): ProviderSettings {
   return {
     baseUrl: 'https://api.openai.com/v1',
     apiKey: '',
@@ -90,9 +98,8 @@ export function defaultProviderConfig(): ProviderConfig {
   }
 }
 
-export function defaultSettings(): Settings {
+export function defaultPublicSettings(): PublicSettings {
   return {
-    provider: defaultProviderConfig(),
     contextLevel: DEFAULT_CONTEXT_LEVEL,
     actions: [],
     actionOverrides: {},

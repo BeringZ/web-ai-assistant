@@ -17,6 +17,12 @@ const CACHE_KEY = 'translation_cache'
 export const CACHE_LIMIT = 300
 export const CACHE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000 // 90 天
 
+/**
+ * 翻译逻辑版本：改变翻译 Prompt/格式/分流策略时 +1，
+ * 让旧缓存自然全部失效（避免旧 Prompt 的结果被复用）。
+ */
+export const TRANSLATION_CACHE_VERSION = 2
+
 export interface TranslationCacheEntry {
   result: string
   createdAt: number
@@ -24,11 +30,11 @@ export interface TranslationCacheEntry {
 
 export type TranslationCache = Record<string, TranslationCacheEntry>
 
-/** 缓存 key：单词统一小写；语段保留原文；按操作区分 */
+/** 缓存 key：版本 + 操作 + 归一化文本（单词统一小写；语段保留原文） */
 export function cacheKeyFor(actionId: string, text: string): string {
   const t = text.trim()
   const normalized = isSingleWord(t) ? t.toLowerCase() : t
-  return `${actionId}|${normalized}`
+  return [TRANSLATION_CACHE_VERSION, actionId, normalized].join('|')
 }
 
 /**

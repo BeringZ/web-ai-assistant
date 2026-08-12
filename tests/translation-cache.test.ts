@@ -9,17 +9,17 @@ import { CACHE_LIMIT, cacheKeyFor, trimCache, type TranslationCache } from '@/co
 
 describe('cacheKeyFor（缓存 key 归一化）', () => {
   it('单词统一小写（Hello 与 hello 是同一个词）', () => {
-    expect(cacheKeyFor('translate', 'Hello')).toBe('translate|hello')
-    expect(cacheKeyFor('translate', 'HELLO')).toBe('translate|hello')
+    expect(cacheKeyFor('translate', 'Hello')).toBe('2|translate|hello')
+    expect(cacheKeyFor('translate', 'HELLO')).toBe('2|translate|hello')
   })
 
   it('语段保留原文与大小写', () => {
-    expect(cacheKeyFor('translate', 'Hello world')).toBe('translate|Hello world')
-    expect(cacheKeyFor('translate', 'HELLO WORLD')).toBe('translate|HELLO WORLD')
+    expect(cacheKeyFor('translate', 'Hello world')).toBe('2|translate|Hello world')
+    expect(cacheKeyFor('translate', 'HELLO WORLD')).toBe('2|translate|HELLO WORLD')
   })
 
   it('trim 掉首尾空白', () => {
-    expect(cacheKeyFor('translate', '  hello  ')).toBe('translate|hello')
+    expect(cacheKeyFor('translate', '  hello  ')).toBe('2|translate|hello')
   })
 })
 

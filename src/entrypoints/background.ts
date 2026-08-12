@@ -11,7 +11,7 @@
  */
 import { defineBackground } from 'wxt/utils/define-background'
 import { browser, type Browser } from 'wxt/browser'
-import type { ProviderConfig, RunRequest, Settings } from '@/core/types'
+import type { ProviderConfig, ProviderSettings, RunRequest } from '@/core/types'
 import {
   PORT_NAME,
   isContentMessage,
@@ -19,7 +19,7 @@ import {
   type BackgroundToContent,
   type BackgroundToOptions,
 } from '@/core/messaging'
-import { getSettings } from '@/core/storage'
+import { getProviderSettings, getPublicSettings } from '@/core/storage'
 import { findAction } from '@/actions/manager'
 import { renderTemplate } from '@/actions/template'
 import { createProvider } from '@/providers'
@@ -27,6 +27,8 @@ import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWor
 import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
 import { getUserDictionaryWords, setUserDictionaryWords } from '@/core/storage'
 import { mergeDictionary } from '@/core/importExport'
+import { debug } from '@/core/debug'
+
 
 export default defineBackground(() => {
   /* ---------------- 通道一：Port 长连接（流式） ---------------- */
@@ -75,14 +77,14 @@ async function handleRun(
   request: RunRequest,
   signal: AbortSignal,
 ): Promise<void> {
-  const settings = await getSettings()
+  const [publicSettings, providerSettings] = await Promise.all([getPublicSettings(), getProviderSettings()])
 
-  const action = findAction(settings.actions, request.actionId, settings.actionOverrides)
+  const action = findAction(publicSettings.actions, request.actionId, publicSettings.actionOverrides)
   if (!action) {
     safePost(port, { type: 'error', message: `找不到操作：${request.actionId}` })
     return
   }
-  console.debug('[WebAI] run', request.actionId)
+  debug('run', request.actionId)
 
   const selection = request.payload.text.trim()
 
@@ -105,7 +107,7 @@ async function handleRun(
     if (!request.forceRefresh) {
       const cached = await getCachedTranslation(cacheKey)
       if (cached) {
-        console.debug('[WebAI] translation cache hit', cacheKey)
+        debug('translation cache hit', cacheKey)
         safePost(port, { type: 'source', source: 'ai' })
         safePost(port, { type: 'chunk', text: cached })
         safePost(port, { type: 'done' })
@@ -127,17 +129,17 @@ async function handleRun(
             question: request.question,
           }),
         }
-    const result = await streamToPort(port, settings, userMessage, signal)
+    const result = await streamToPort(port, providerSettings, userMessage, signal)
     if (result.trim()) {
       await setCachedTranslation(cacheKey, result)
-      console.debug('[WebAI] translation cached', cacheKey)
+      debug('translation cached', cacheKey)
       // 单个英文词的 AI 翻译结果自动收录进用户词库（下次秒出不耗 Token）
       if (isSingleWord(selection)) {
         const entry = parseAiWordEntry(selection, result)
         if (entry) {
           const current = await getUserDictionaryWords()
           await setUserDictionaryWords(mergeDictionary(current, [entry]))
-          console.debug('[WebAI] word added to dictionary', selection)
+          debug('word added to dictionary', selection)
         }
       }
     }
@@ -154,7 +156,7 @@ async function handleRun(
     title: request.payload.title,
     question: request.question,
   })
-  await streamToPort(port, settings, { role: 'user', content: prompt }, signal)
+  await streamToPort(port, providerSettings, { role: 'user', content: prompt }, signal)
   safePost(port, { type: 'done' })
 }
 
@@ -164,18 +166,18 @@ async function handleRun(
  */
 async function streamToPort(
   port: Browser.runtime.Port,
-  settings: Settings,
+  providerSettings: ProviderSettings,
   userMessage: { role: 'user'; content: string },
   signal: AbortSignal,
 ): Promise<string> {
-  const provider = createProvider(settings.provider)
+  const provider = createProvider(providerSettings)
   const stream = await provider.chat({
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userMessage,
     ],
-    temperature: settings.provider.temperature,
-    maxTokens: settings.provider.maxTokens,
+    temperature: providerSettings.temperature,
+    maxTokens: providerSettings.maxTokens,
     signal,
   })
   let collected = ''

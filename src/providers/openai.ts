@@ -10,6 +10,7 @@
  * 2. 可控性：AbortSignal 中断是手动控制 ReadableStream 才做得干净的；
  * 3. 团队学习价值：读懂这段代码 = 彻底理解 SSE 协议。
  */
+import { debug } from '@/core/debug'
 import type { AIProvider, ChatRequest } from './types'
 import { ProviderError } from './types'
 
@@ -38,7 +39,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     const init = this.buildInit(request)
 
     // 调试日志：只输出请求 URL，绝不含 API Key
-    console.debug('[WebAI] request', url)
+    debug('request', url)
 
     const response = await fetch(url, init)
     if (!response.ok) {

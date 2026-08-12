@@ -15,7 +15,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script'
 import { browser, type Browser } from 'wxt/browser'
 import { createRoot, type Root } from 'react-dom/client'
 import { useEffect, useRef, useState } from 'react'
-import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, RunRequest, SelectionPayload, Settings } from '@/core/types'
+import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, PublicSettings, RunRequest, SelectionPayload } from '@/core/types'
 import { PORT_NAME, type BackgroundToContent } from '@/core/messaging'
 import { getCollections, getContentContext, toggleCollection } from '@/core/storage'
 import { collectActions } from '@/actions/manager'
@@ -23,6 +23,8 @@ import { buildSelectionPayload, hasUsableSelection } from '@/selection/context'
 import { FloatingMenu } from '@/components/FloatingMenu'
 import { ResultPanel, type PanelState } from '@/components/ResultPanel'
 import '@/components/styles.css'
+import { debug } from '@/core/debug'
+
 
 /** 结果面板定位参数：位置 + 允许的最大高度（下方空间不足时面板内部滚动） */
 interface PanelPosition {
@@ -63,7 +65,7 @@ export default defineContentScript({
 
 function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   const [customActions, setCustomActions] = useState<Action[]>([])
-  const [actionOverrides, setActionOverrides] = useState<Settings['actionOverrides']>({})
+  const [actionOverrides, setActionOverrides] = useState<PublicSettings['actionOverrides']>({})
   const [contextLevel, setContextLevel] = useState<ContextLevel>('nearby')
   const [panelCloseMode, setPanelCloseMode] = useState<PanelCloseMode>('manual')
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
@@ -78,15 +80,31 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   /** 当前任务的原文（收藏唯一性判断用） */
   const sourceTextRef = useRef<string>('')
 
-  // 加载 Content Script 白名单上下文 + 收藏列表
+  /** 重新读取白名单上下文（初始化 / storage 变化时） */
+  const reloadContentContext = async () => {
+    const ctx = await getContentContext()
+    setCustomActions(ctx.customActions)
+    setActionOverrides(ctx.actionOverrides)
+    setContextLevel(ctx.contextLevel)
+    setPanelCloseMode(ctx.panelCloseMode)
+  }
+
+  // 初始化加载上下文 + 收藏列表
   useEffect(() => {
-    getContentContext().then((ctx) => {
-      setCustomActions(ctx.customActions)
-      setActionOverrides(ctx.actionOverrides)
-      setContextLevel(ctx.contextLevel)
-      setPanelCloseMode(ctx.panelCloseMode)
-    })
+    reloadContentContext()
     getCollections().then(setCollections)
+  }, [])
+
+  // 设置（Actions/上下文/关闭模式）修改后，已打开的网页即时生效
+  useEffect(() => {
+    const listener = (changes: Record<string, Browser.storage.StorageChange>, areaName: string) => {
+      if (areaName !== 'local') return
+      if (changes.public_settings) {
+        reloadContentContext()
+      }
+    }
+    browser.storage.onChanged.addListener(listener)
+    return () => browser.storage.onChanged.removeListener(listener)
   }, [])
 
   /* ---------- 选区监听 ---------- */
@@ -135,7 +153,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
     // 快照 Range：用户点菜单时选区可能已被页面清掉
     rangeRef.current = sel.getRangeAt(0).cloneRange()
-    console.debug('[WebAI] selection', getAnchorRect())
+    debug('selection', getAnchorRect())
 
     const rect = getAnchorRect()
     if (!rect) return
@@ -208,7 +226,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   /* ---------- 任务执行（Port 生命周期） ---------- */
 
   function pickAction(action: Action) {
-    console.debug('[WebAI] action', action.id)
+    debug('action', action.id)
     const rect = getAnchorRect()
     const nextPanel: PanelState = {
       action,
@@ -240,7 +258,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     requestRef.current = request
     abortPort() // 若有旧连接先断开
 
-    console.debug('[WebAI] connecting background')
+    debug('connecting background')
     const port = browser.runtime.connect({ name: PORT_NAME })
     portRef.current = port
 
