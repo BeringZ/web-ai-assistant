@@ -13,8 +13,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { browser } from 'wxt/browser'
-import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, ProviderConfig, Settings } from '@/core/types'
-import { CONTEXT_LEVEL_LABELS, defaultProviderConfig } from '@/core/types'
+import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, ProviderConfig, Settings } from '@/core/types'
+import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderConfig } from '@/core/types'
 import {
   getCollections,
   getSettings,
@@ -33,6 +33,7 @@ import {
   parseCollectionsImport,
   parseDictionaryImport,
 } from '@/core/importExport'
+import { Markdown } from '@/components/markdown'
 import type { BackgroundToOptions } from '@/core/messaging'
 
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
@@ -40,6 +41,7 @@ type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
 export function SettingsPanel() {
   const [provider, setProvider] = useState<ProviderConfig>(defaultProviderConfig())
   const [contextLevel, setContextLevel] = useState<ContextLevel>('nearby')
+  const [panelCloseMode, setPanelCloseMode] = useState<PanelCloseMode>('manual')
   const [customActions, setCustomActions] = useState<Action[]>([])
   const [overrides, setOverrides] = useState<Settings['actionOverrides']>({})
   const [loaded, setLoaded] = useState(false)
@@ -68,6 +70,7 @@ export function SettingsPanel() {
       setContextLevel(s.contextLevel)
       setCustomActions(s.actions)
       setOverrides(s.actionOverrides)
+      setPanelCloseMode(s.panelCloseMode)
       setLoaded(true)
     })
     getUserDictionaryWords().then(setUserWords)
@@ -80,7 +83,7 @@ export function SettingsPanel() {
   const save = async () => {
     setSaving(true)
     try {
-      await saveSettings({ provider, contextLevel, actions: customActions, actionOverrides: overrides })
+      await saveSettings({ provider, contextLevel, actions: customActions, actionOverrides: overrides, panelCloseMode })
       setSaved(true)
       setTimeout(() => setSaved(false), 1600)
     } finally {
@@ -313,6 +316,25 @@ export function SettingsPanel() {
         </div>
       </section>
 
+      {/* ---------------- 结果面板 ---------------- */}
+      <section className="card">
+        <h2>结果面板</h2>
+        <p className="hint">关闭方式：自动关闭模式下，点击输出框以外的区域即可关闭（Esc 始终有效）。</p>
+        <div className="radio-group">
+          {(Object.keys(PANEL_CLOSE_MODE_LABELS) as PanelCloseMode[]).map((mode) => (
+            <label key={mode} className="radio">
+              <input
+                type="radio"
+                name="panelCloseMode"
+                checked={panelCloseMode === mode}
+                onChange={() => setPanelCloseMode(mode)}
+              />
+              <span>{PANEL_CLOSE_MODE_LABELS[mode]}</span>
+            </label>
+          ))}
+        </div>
+      </section>
+
       {/* ---------------- 操作管理 ---------------- */}
       <section className="card">
         <div className="section-head">
@@ -532,15 +554,22 @@ export function SettingsPanel() {
           <ul className="col-list">
             {collections.map((c) => (
               <li key={c.id} className="col-item">
-                <div className="col-info">
-                  <span className="col-source">{c.sourceText.length > 60 ? `${c.sourceText.slice(0, 60)}…` : c.sourceText}</span>
-                  <span className="col-meta">
-                    <span className="badge">{c.actionName}</span>
-                    <span className={`badge ${c.source === 'dictionary' ? 'badge-dict' : ''}`}>
-                      {c.source === 'dictionary' ? '词库' : 'AI'}
+                <div className="col-main">
+                  <div className="col-info">
+                    <span className="col-source">{c.sourceText.length > 80 ? `${c.sourceText.slice(0, 80)}…` : c.sourceText}</span>
+                    <span className="col-meta">
+                      <span className="badge">{c.actionName}</span>
+                      <span className={`badge ${c.source === 'dictionary' ? 'badge-dict' : ''}`}>
+                        {c.source === 'dictionary' ? '词库' : 'AI'}
+                      </span>
+                      <span className="col-time">{new Date(c.createdAt).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })}</span>
                     </span>
-                    <span className="col-time">{new Date(c.createdAt).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                  </span>
+                  </div>
+                  {c.result && (
+                    <div className="col-result">
+                      <Markdown text={c.result} />
+                    </div>
+                  )}
                 </div>
                 <button type="button" className="btn small danger" onClick={() => handleRemoveCollection(c.id)}>删除</button>
               </li>

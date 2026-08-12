@@ -56,6 +56,9 @@ export interface ProviderConfig {
 /** 内置 Action 的可编辑覆盖（只存被用户改过的字段，未覆盖的保持默认） */
 export type ActionOverride = Partial<Pick<Action, 'name' | 'prompt'>>
 
+/** 结果面板关闭方式：手动点关闭按钮 / 点击面板外部自动关闭 */
+export type PanelCloseMode = 'manual' | 'auto'
+
 /** 扩展整体设置（Options 页编辑，background 消费） */
 export interface Settings {
   provider: ProviderConfig
@@ -65,9 +68,17 @@ export interface Settings {
   actions: Action[]
   /** 内置 Action 的覆盖（id → 覆盖字段）；恢复默认 = 删除对应 key */
   actionOverrides: Record<string, ActionOverride>
+  /** 结果面板关闭方式 */
+  panelCloseMode: PanelCloseMode
 }
 
 export const DEFAULT_CONTEXT_LEVEL: ContextLevel = 'nearby'
+export const DEFAULT_PANEL_CLOSE_MODE: PanelCloseMode = 'manual'
+
+export const PANEL_CLOSE_MODE_LABELS: Record<PanelCloseMode, string> = {
+  manual: '手动关闭',
+  auto: '自动关闭（点击输出框外）',
+}
 
 export function defaultProviderConfig(): ProviderConfig {
   return {
@@ -85,6 +96,7 @@ export function defaultSettings(): Settings {
     contextLevel: DEFAULT_CONTEXT_LEVEL,
     actions: [],
     actionOverrides: {},
+    panelCloseMode: DEFAULT_PANEL_CLOSE_MODE,
   }
 }
 

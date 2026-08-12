@@ -382,11 +382,29 @@ input[type='range'] {
 
 .col-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   padding: 10px 0;
   border-top: 1px solid var(--border);
+}
+
+.col-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.col-result {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .col-info {
@@ -419,6 +437,48 @@ input[type='range'] {
   color: #16a34a;
   background: rgba(22, 163, 74, 0.1);
   border-color: transparent;
+}
+
+/* ---------------- 收藏结果 Markdown 渲染（与结果面板同一套视觉） ---------------- */
+
+.wa-md p {
+  margin: 0 0 6px;
+}
+.wa-md p:last-child {
+  margin-bottom: 0;
+}
+.wa-md ul,
+.wa-md ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.wa-md li {
+  margin: 2px 0;
+}
+.wa-md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.wa-md pre {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 6px;
+  overflow-x: auto;
+}
+.wa-md pre code {
+  background: none;
+  padding: 0;
+}
+.wa-md strong {
+  font-weight: 600;
+}
+.wa-md em {
+  font-style: italic;
 }
 
 .action-prompt {

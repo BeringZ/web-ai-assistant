@@ -23,9 +23,10 @@ import { getSettings } from '@/core/storage'
 import { findAction } from '@/actions/manager'
 import { renderTemplate } from '@/actions/template'
 import { createProvider } from '@/providers'
-import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords } from '@/dictionary'
+import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords, parseAiWordEntry } from '@/dictionary'
 import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
-import { getUserDictionaryWords } from '@/core/storage'
+import { getUserDictionaryWords, setUserDictionaryWords } from '@/core/storage'
+import { mergeDictionary } from '@/core/importExport'
 
 export default defineBackground(() => {
   /* ---------------- 通道一：Port 长连接（流式） ---------------- */
@@ -130,6 +131,15 @@ async function handleRun(
     if (result.trim()) {
       await setCachedTranslation(cacheKey, result)
       console.debug('[WebAI] translation cached', cacheKey)
+      // 单个英文词的 AI 翻译结果自动收录进用户词库（下次秒出不耗 Token）
+      if (isSingleWord(selection)) {
+        const entry = parseAiWordEntry(selection, result)
+        if (entry) {
+          const current = await getUserDictionaryWords()
+          await setUserDictionaryWords(mergeDictionary(current, [entry]))
+          console.debug('[WebAI] word added to dictionary', selection)
+        }
+      }
     }
     safePost(port, { type: 'done' })
     return

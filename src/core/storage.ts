@@ -6,8 +6,8 @@
  * Content Script 不 import 本模块 —— 这就是"API Key 不出扩展"的类型级保证。
  */
 import { browser } from 'wxt/browser'
-import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, Settings } from './types'
-import { defaultSettings } from './types'
+import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, Settings } from './types'
+import { DEFAULT_PANEL_CLOSE_MODE, defaultSettings } from './types'
 
 const STORAGE_KEY = 'settings'
 const COLLECTIONS_KEY = 'collections'
@@ -24,12 +24,18 @@ export interface ContentContext {
   contextLevel: ContextLevel
   customActions: Action[]
   actionOverrides: Settings['actionOverrides']
+  panelCloseMode: PanelCloseMode
 }
 
 /** 供 Content Script 读取的最小上下文（不含任何密钥） */
 export async function getContentContext(): Promise<ContentContext> {
   const s = await getSettings()
-  return { contextLevel: s.contextLevel, customActions: s.actions, actionOverrides: s.actionOverrides }
+  return {
+    contextLevel: s.contextLevel,
+    customActions: s.actions,
+    actionOverrides: s.actionOverrides,
+    panelCloseMode: s.panelCloseMode,
+  }
 }
 
 /**
@@ -82,6 +88,10 @@ function normalizeSettings(raw: Partial<Settings> | undefined): Settings {
       raw.actionOverrides && typeof raw.actionOverrides === 'object'
         ? raw.actionOverrides
         : {},
+    panelCloseMode:
+      raw.panelCloseMode === 'auto' || raw.panelCloseMode === 'manual'
+        ? raw.panelCloseMode
+        : DEFAULT_PANEL_CLOSE_MODE,
   }
 }
 

@@ -4,7 +4,7 @@
  * 覆盖：词/语段判定、词库命中/未命中、输出格式。
  */
 import { describe, expect, it } from 'vitest'
-import { BUILTIN_WORDS, DICTIONARY_SIZE, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords } from '@/dictionary'
+import { BUILTIN_WORDS, DICTIONARY_SIZE, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords, parseAiWordEntry } from '@/dictionary'
 
 describe('isSingleWord（词 vs 语段判定）', () => {
   it('单个英文词判为词', () => {
@@ -85,5 +85,33 @@ describe('WORD_FORMAT_HINT（AI 词典化格式要求）', () => {
     expect(WORD_FORMAT_HINT).toContain('音标')
     expect(WORD_FORMAT_HINT).toContain('词性')
     expect(WORD_FORMAT_HINT).toContain('释义')
+  })
+})
+
+describe('parseAiWordEntry（AI 输出 → 词条）', () => {
+  it('解析标准词典格式输出', () => {
+    const entry = parseAiWordEntry('serendipity', [
+      '**serendipity**  /ˌserənˈdɪpəti/',
+      '- n. 意外发现美好事物的能力',
+      '- n. 机缘巧合',
+    ].join('\n'))
+    expect(entry).not.toBeNull()
+    expect(entry!.word).toBe('serendipity')
+    expect(entry!.phonetic).toBe('ˌserənˈdɪpəti')
+    expect(entry!.meanings).toEqual([
+      { pos: 'n.', meaning: '意外发现美好事物的能力' },
+      { pos: 'n.', meaning: '机缘巧合' },
+    ])
+  })
+
+  it('词性行无列表前缀也能解析', () => {
+    const entry = parseAiWordEntry('happy', 'adj. 快乐的；幸福的')
+    expect(entry).not.toBeNull()
+    expect(entry!.meanings[0]).toEqual({ pos: 'adj.', meaning: '快乐的；幸福的' })
+  })
+
+  it('解析失败（无有效释义行）返回 null', () => {
+    expect(parseAiWordEntry('xyz', '完全不符合格式的回复')).toBeNull()
+    expect(parseAiWordEntry('xyz', '')).toBeNull()
   })
 })

@@ -15,7 +15,7 @@ import { defineContentScript } from 'wxt/utils/define-content-script'
 import { browser, type Browser } from 'wxt/browser'
 import { createRoot, type Root } from 'react-dom/client'
 import { useEffect, useRef, useState } from 'react'
-import type { Action, CollectionEntry, ContextLevel, RunRequest, SelectionPayload, Settings } from '@/core/types'
+import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, RunRequest, SelectionPayload, Settings } from '@/core/types'
 import { PORT_NAME, type BackgroundToContent } from '@/core/messaging'
 import { getCollections, getContentContext, toggleCollection } from '@/core/storage'
 import { collectActions } from '@/actions/manager'
@@ -65,6 +65,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   const [customActions, setCustomActions] = useState<Action[]>([])
   const [actionOverrides, setActionOverrides] = useState<Settings['actionOverrides']>({})
   const [contextLevel, setContextLevel] = useState<ContextLevel>('nearby')
+  const [panelCloseMode, setPanelCloseMode] = useState<PanelCloseMode>('manual')
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
   const [panel, setPanel] = useState<PanelState | null>(null)
   const [panelPos, setPanelPos] = useState<PanelPosition | null>(null)
@@ -83,6 +84,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
       setCustomActions(ctx.customActions)
       setActionOverrides(ctx.actionOverrides)
       setContextLevel(ctx.contextLevel)
+      setPanelCloseMode(ctx.panelCloseMode)
     })
     getCollections().then(setCollections)
   }, [])
@@ -102,9 +104,14 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     }
 
     const onDocMouseDown = (e: MouseEvent) => {
-      // 点击页面其它区域：收起菜单（面板保留，避免误关）
+      // 点击发生在我们的 UI 内部：不处理
       if (hostEl.contains(e.target as Node)) return
+      // 点击页面其它区域：收起菜单
       setMenuPos(null)
+      // 「自动关闭」模式下，点击面板外部即关闭结果面板
+      if (panelCloseMode === 'auto' && panel) {
+        onClose()
+      }
     }
 
     document.addEventListener('mouseup', onMouseUp)
@@ -117,7 +124,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
       document.removeEventListener('mousedown', onDocMouseDown)
       clearTimeout(debounceTimer)
     }
-  }, [hostEl, contextLevel, panel]) // panel 变化时重新绑定，保证闭包里的 panel 判断是最新的
+  }, [hostEl, contextLevel, panelCloseMode, panel]) // panel/模式变化时重新绑定，保证闭包里的判断是最新的
 
   /** 弹菜单的判定：有可用选区 + 面板未打开（MVP：一次只处理一个任务） */
   function maybeShowMenu() {

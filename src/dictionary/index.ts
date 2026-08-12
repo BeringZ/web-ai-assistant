@@ -53,3 +53,32 @@ export const WORD_FORMAT_HINT = [
   '其后每行一条常见释义，格式：词性缩写（n./v./adj./adv./int./prep./conj.…）+ 中文释义',
   '把该词最常见的 2-4 个意思都列出来，不要解释用法，不要多余的话。',
 ].join('\n')
+
+/**
+ * 解析 AI 的词典格式输出 → 结构化词条。
+ * 解析失败（格式不符）返回 null，由调用方决定不入库。
+ *
+ * 期望格式（与 WORD_FORMAT_HINT 对应）：
+ *   **serendipity**  /ˌserənˈdɪpəti/
+ *   - n. 意外发现美好事物的能力
+ */
+export function parseAiWordEntry(word: string, aiText: string): DictionaryEntry | null {
+  const phoneticMatch = /\/[^/]+\//.exec(aiText)
+  const phonetic = phoneticMatch ? phoneticMatch[0].slice(1, -1) : undefined
+
+  const meanings: DictionaryEntry['meanings'] = []
+  for (const line of aiText.split('\n')) {
+    const t = line.trim()
+    if (!t) continue
+    if (t.startsWith('**')) continue // 单词行
+    // 词性缩写：n. / v. / adj. / adv. / int. / prep. / conj. …（可带 - 列表前缀）
+    const m = /^[-*]?\s*([a-zA-Z]+\.)\s*(.+)$/.exec(t)
+    if (m && m[1]!.length <= 6) {
+      const meaning = m[2]!.trim()
+      if (meaning) meanings.push({ pos: m[1]!, meaning })
+    }
+  }
+
+  if (meanings.length === 0) return null
+  return { word: word.trim(), phonetic, meanings }
+}
