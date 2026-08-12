@@ -232,7 +232,7 @@ function friendlyError(err: unknown): string {
 
 /** 全局系统提示词：约束模型输出风格 */
 const SYSTEM_PROMPT = [
-  '你是一个网页 AI 助手。',
+  '你是 web-translate，一个网页翻译与理解助手。',
   '用户会提供"选中内容"和可选"上下文"，请直接完成任务，不要复述指令。',
   '回答使用简洁的 Markdown；代码用围栏代码块；中文回答（除非选中内容为中文且任务为改写）。',
 ].join('')

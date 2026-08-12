@@ -71,7 +71,7 @@ export function PopupApp() {
   return (
     <div className="popup">
       <header className="popup-header">
-        <span className="popup-title">网页 AI 助手</span>
+        <span className="popup-title">web-translate</span>
         <button type="button" className="btn small" onClick={() => browser.runtime.openOptionsPage()}>
           完整设置 ↗
         </button>

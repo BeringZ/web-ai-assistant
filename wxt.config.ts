@@ -11,7 +11,7 @@ import { defineConfig } from 'wxt'
 export default defineConfig({
   srcDir: 'src',
   manifest: {
-    name: '网页 AI 助手',
+    name: 'web-translate',
     description: '选中即问：翻译、解释、总结、改写，接入你自己的 AI API',
     version: '0.3.0',
     permissions: ['storage'],

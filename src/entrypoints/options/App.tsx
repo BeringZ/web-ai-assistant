@@ -590,7 +590,7 @@ export function OptionsApp() {
   return (
     <div className="page">
       <header className="header">
-        <h1>网页 AI 助手</h1>
+        <h1>web-translate</h1>
         <p className="sub">选中即问：翻译、解释、总结、改写 —— 接入你自己的 AI API</p>
       </header>
       <SettingsPanel />

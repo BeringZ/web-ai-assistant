@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366f1"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
     </linearGradient>
   </defs>
-  <!-- 圆角渐变底 -->
+  <!-- 圆角蓝底 -->
   <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
-  <!-- 文本行（选中内容） -->
-  <rect x="30" y="44" width="52" height="7" rx="3.5" fill="#ffffff" opacity="0.45"/>
-  <rect x="30" y="60" width="68" height="9" rx="4.5" fill="#ffffff"/>
-  <!-- 选区高亮下划线 -->
-  <rect x="30" y="72" width="44" height="4" rx="2" fill="#fbbf24"/>
-  <rect x="30" y="82" width="46" height="7" rx="3.5" fill="#ffffff" opacity="0.45"/>
-  <!-- 火花（AI） -->
-  <path d="M96 30 l4 9.5 L110 43.5 l-10 4 L96 57 l-4-9.5 L82 43.5 l10-4 z" fill="#fde68a"/>
-  <circle cx="101" cy="24" r="3.2" fill="#fde68a"/>
-  <circle cx="112" cy="34" r="2.4" fill="#fde68a" opacity="0.85"/>
+  <!-- 白色圆体「译」 -->
+  <text
+    x="64"
+    y="72"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-size="76"
+    font-weight="700"
+    fill="#ffffff"
+    font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, system-ui, sans-serif"
+  >译</text>
 </svg>
