@@ -19,10 +19,20 @@ import type { Action, CollectionEntry, ContextLevel, RunRequest, SelectionPayloa
 import { PORT_NAME, type BackgroundToContent } from '@/core/messaging'
 import { getCollections, getContentContext, toggleCollection } from '@/core/storage'
 import { collectActions } from '@/actions/manager'
-import { buildSelectionPayload, getSelectionRect, hasUsableSelection } from '@/selection/context'
+import { buildSelectionPayload, hasUsableSelection } from '@/selection/context'
 import { FloatingMenu } from '@/components/FloatingMenu'
 import { ResultPanel, type PanelState } from '@/components/ResultPanel'
 import '@/components/styles.css'
+
+/** 结果面板定位参数：位置 + 允许的最大高度（下方空间不足时面板内部滚动） */
+interface PanelPosition {
+  x: number
+  y: number
+  maxHeight: number
+}
+
+/** 结果面板固定宽度（与 CSS .wa-panel 保持一致） */
+const PANEL_WIDTH = 420
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -57,16 +67,13 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   const [contextLevel, setContextLevel] = useState<ContextLevel>('nearby')
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null)
   const [panel, setPanel] = useState<PanelState | null>(null)
-  const [panelPos, setPanelPos] = useState<{ x: number; y: number } | null>(null)
+  const [panelPos, setPanelPos] = useState<PanelPosition | null>(null)
   const [collections, setCollections] = useState<CollectionEntry[]>([])
 
   // 不可变/跨渲染数据放 ref：快照的 Range、Port、最后一次请求（重试用）
   const rangeRef = useRef<Range | null>(null)
   const portRef = useRef<Browser.runtime.Port | null>(null)
   const requestRef = useRef<RunRequest | null>(null)
-  /** 菜单弹出时缓存的有效选区矩形——点击菜单项时选区可能已被页面清除，
-   *  此时 range.getBoundingClientRect() 会返回 (0,0)，导致面板定位到屏幕顶部 */
-  const menuRectRef = useRef<DOMRect | null>(null)
   /** 当前任务的原文（收藏唯一性判断用） */
   const sourceTextRef = useRef<string>('')
 
@@ -121,14 +128,27 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
     // 快照 Range：用户点菜单时选区可能已被页面清掉
     rangeRef.current = sel.getRangeAt(0).cloneRange()
+    console.debug('[WebAI] selection', getAnchorRect())
 
-    const rect = getSelectionRect(rangeRef.current)
+    const rect = getAnchorRect()
     if (!rect) return
-    menuRectRef.current = rect
     setMenuPos(menuPosition(rect))
   }
 
-  /* ---------- 菜单/面板定位（MVP 级防溢出） ---------- */
+  /* ---------- 菜单/面板定位 ---------- */
+
+  /**
+   * 统一 Anchor：所有悬浮 UI（菜单/面板）都以 rangeRef 快照的选区矩形为基准。
+   * Range 是独立克隆对象，不随页面清除选区而失效；
+   * getBoundingClientRect() 始终返回当前视口坐标 → 滚动后重算即可跟随。
+   */
+  function getAnchorRect(): DOMRect | null {
+    const range = rangeRef.current
+    if (!range) return null
+    const rect = range.getBoundingClientRect()
+    if (rect.width === 0 && rect.height === 0) return null
+    return rect
+  }
 
   function menuPosition(rect: DOMRect): { x: number; y: number } {
     const estH = 44
@@ -137,29 +157,52 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   }
 
   /**
-   * 面板定位：优先**上沿紧贴选区下方**（rect.bottom + 8），
-   * 下方放不下时贴选区上方；x 方向与选区左对齐并 clamp 进视口。
-   * rect 无效（0,0）时回退到视口中心偏上，绝不落到屏幕顶部。
+   * 面板定位：**上沿固定吸附在选区下方 8px**，绝不跳到选区上方。
+   * 下方空间不足时不翻转面板，而是压缩 maxHeight 让内容在面板内部滚动。
+   *
+   * 工程补充：选区贴住视口底部时，y 会被 clamp 到"至少露出
+   * MIN_VISIBLE 高度"的位置——配合滚动跟随，滚动后面板即完整可见。
    */
-  function panelPosition(rect: DOMRect): { x: number; y: number } {
-    const w = Math.min(420, window.innerWidth - 16)
-    const h = Math.min(window.innerHeight * 0.7, 560)
-    const valid = rect && (rect.width > 0 || rect.height > 0) && rect.bottom > 0 && rect.top >= 0
-    const x = valid
-      ? Math.max(8, Math.min(rect.left, window.innerWidth - w - 8))
-      : Math.max(8, Math.floor((window.innerWidth - w) / 2))
-    if (!valid) {
-      return { x, y: Math.max(8, Math.floor(window.innerHeight / 2)) }
-    }
-    const y = rect.bottom + 8 + h > window.innerHeight ? Math.max(8, rect.top - h - 8) : rect.bottom + 8
-    return { x, y }
+  function panelPosition(rect: DOMRect): PanelPosition {
+    const GAP = 8
+    const MARGIN = 8
+    const MIN_VISIBLE = 160 // 面板最小可见高度（保证不出现"只露一条缝"）
+
+    const width = Math.min(PANEL_WIDTH, window.innerWidth - MARGIN * 2)
+    const x = Math.max(MARGIN, Math.min(rect.left, window.innerWidth - width - MARGIN))
+
+    let y = Math.max(MARGIN, rect.bottom + GAP)
+    y = Math.min(y, window.innerHeight - MIN_VISIBLE - MARGIN)
+
+    const maxHeight = Math.max(MIN_VISIBLE, window.innerHeight - y - MARGIN)
+
+    return { x, y, maxHeight }
   }
+
+  /** 面板打开期间跟随滚动/缩放：滚动用 capture 捕获内部容器的滚动 */
+  useEffect(() => {
+    if (!panel) return
+
+    const reposition = () => {
+      const rect = getAnchorRect()
+      if (!rect) return
+      setPanelPos(panelPosition(rect))
+    }
+
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [panel])
 
   /* ---------- 任务执行（Port 生命周期） ---------- */
 
   function pickAction(action: Action) {
-    // 用菜单弹出时缓存的有效 rect（此时选区必然有效），而不是重新取
-    const rect = menuRectRef.current
+    console.debug('[WebAI] action', action.id)
+    const rect = getAnchorRect()
     const nextPanel: PanelState = {
       action,
       status: action.id === 'ask' ? 'ask' : 'streaming',
@@ -170,7 +213,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     }
     setMenuPos(null)
     setPanel(nextPanel)
-    setPanelPos(rect ? panelPosition(rect) : { x: 24, y: 96 })
+    setPanelPos(rect ? panelPosition(rect) : { x: 24, y: 96, maxHeight: 320 })
 
     // ask 动作等用户输入，其余立即开跑
     if (action.id !== 'ask') {
@@ -190,6 +233,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     requestRef.current = request
     abortPort() // 若有旧连接先断开
 
+    console.debug('[WebAI] connecting background')
     const port = browser.runtime.connect({ name: PORT_NAME })
     portRef.current = port
 
@@ -245,7 +289,6 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     abortPort()
     rangeRef.current = null
     requestRef.current = null
-    menuRectRef.current = null
     sourceTextRef.current = ''
     setPanel(null)
     setPanelPos(null)
@@ -289,6 +332,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
           panel={panel}
           x={panelPos.x}
           y={panelPos.y}
+          maxHeight={panelPos.maxHeight}
           onAskSubmit={onAskSubmit}
           onRetry={onRetry}
           onAbort={onAbort}

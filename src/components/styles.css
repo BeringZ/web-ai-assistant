@@ -119,7 +119,7 @@
   position: fixed;
   width: 420px;
   max-width: min(92vw, 420px);
-  max-height: min(70vh, 560px);
+  /* 高度由 React 动态计算（maxHeight），下方空间不足时内容在 body 内滚动 */
   display: flex;
   flex-direction: column;
   background: var(--wa-bg);
@@ -165,6 +165,9 @@
   overscroll-behavior: contain;
   font-size: 13.5px;
   word-break: break-word;
+  /* flex 列布局下撑满剩余空间；min-height:0 允许收缩产生内部滚动 */
+  flex: 1;
+  min-height: 0;
 }
 
 /* 流式中的光标 */

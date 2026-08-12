@@ -37,6 +37,9 @@ export class OpenAICompatibleProvider implements AIProvider {
     const url = this.buildUrl()
     const init = this.buildInit(request)
 
+    // 调试日志：只输出请求 URL，绝不含 API Key
+    console.debug('[WebAI] request', url)
+
     const response = await fetch(url, init)
     if (!response.ok) {
       throw await this.parseHttpError(response)

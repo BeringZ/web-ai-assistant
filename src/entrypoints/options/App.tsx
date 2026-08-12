@@ -99,6 +99,16 @@ export function SettingsPanel() {
     setEditing(null)
   }
 
+  /** 新建自定义 Action（创建模式下 editing 为 null，不能复用 saveEdit） */
+  const saveCreate = () => {
+    if (!editName.trim() || !editPrompt.trim()) return
+    const action = createCustomAction(editName, editPrompt)
+    setCustomActions((list) => [...list, action])
+    setCreating(false)
+    setEditName('')
+    setEditPrompt('')
+  }
+
   const resetBuiltin = (id: string) => {
     setOverrides((o) => {
       const next = { ...o }
@@ -247,7 +257,7 @@ export function SettingsPanel() {
             </label>
             <div className="actions">
               <button type="button" className="btn" onClick={() => setCreating(false)}>取消</button>
-              <button type="button" className="btn primary" onClick={saveEdit} disabled={!editName.trim() || !editPrompt.trim() || !creating}>
+              <button type="button" className="btn primary" onClick={saveCreate} disabled={!editName.trim() || !editPrompt.trim()}>
                 添加
               </button>
             </div>

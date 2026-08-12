@@ -30,6 +30,8 @@ interface ResultPanelProps {
   panel: PanelState
   x: number
   y: number
+  /** 面板最大高度（下方空间不足时内部滚动） */
+  maxHeight: number
   onAskSubmit: (question: string) => void
   onRetry: () => void
   onAbort: () => void
@@ -48,7 +50,7 @@ const ICON = {
   heart: 'M12 21s-7.5-4.7-10-9.3C.6 8.6 2.7 5 6 5c2 0 3.4 1.1 4 2.2C10.6 6.1 12 5 14 5c3.3 0 5.4 3.6 4 6.7C19.5 16.3 12 21 12 21z',
 }
 
-export function ResultPanel({ panel, x, y, onAskSubmit, onRetry, onAbort, onClose, isFavorite, onToggleFavorite }: ResultPanelProps) {
+export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAbort, onClose, isFavorite, onToggleFavorite }: ResultPanelProps) {
   const [question, setQuestion] = useState('')
   const [copied, setCopied] = useState(false)
   const [favPulse, setFavPulse] = useState(false)
@@ -89,7 +91,7 @@ export function ResultPanel({ panel, x, y, onAskSubmit, onRetry, onAbort, onClos
   return (
     <div
       className="wa-panel"
-      style={{ left: x, top: y }}
+      style={{ left: x, top: y, maxHeight }}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >

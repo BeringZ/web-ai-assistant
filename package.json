@@ -2,7 +2,7 @@
   "name": "web-ai-assistant",
   "description": "网页 AI 助手：选中即问，翻译/解释/总结/改写，接入自有 OpenAI-compatible API",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",

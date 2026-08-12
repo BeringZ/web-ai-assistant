@@ -79,6 +79,7 @@ async function handleRun(
     safePost(port, { type: 'error', message: `找不到操作：${request.actionId}` })
     return
   }
+  console.debug('[WebAI] run', request.actionId)
 
   // ── 本地词库短路（仅翻译操作 + 单个英文词）──
   // 命中词库 → 直接输出，不消耗 API Token，毫秒级返回
