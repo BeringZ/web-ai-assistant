@@ -24,6 +24,7 @@ import { findAction } from '@/actions/manager'
 import { renderTemplate } from '@/actions/template'
 import { createProvider } from '@/providers'
 import { WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupWord } from '@/dictionary'
+import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
 
 export default defineBackground(() => {
   /* ---------------- 通道一：Port 长连接（流式） ---------------- */
@@ -81,23 +82,53 @@ async function handleRun(
   }
   console.debug('[WebAI] run', request.actionId)
 
-  // ── 本地词库短路（仅翻译操作 + 单个英文词）──
-  // 命中词库 → 直接输出，不消耗 API Token，毫秒级返回
   const selection = request.payload.text.trim()
-  if (action.id === 'translate' && isSingleWord(selection)) {
-    const hit = lookupWord(selection)
-    if (hit) {
-      safePost(port, { type: 'source', source: 'dictionary' })
-      safePost(port, { type: 'chunk', text: formatEntry(hit) })
-      safePost(port, { type: 'done' })
-      return
+
+  // ── 翻译操作：本地词库 → 翻译缓存 → AI 三级分流 ──
+  if (action.id === 'translate') {
+    // 1) 本地词库（仅单个英文词）：权威释义，秒出且不耗 Token
+    if (isSingleWord(selection)) {
+      const hit = lookupWord(selection)
+      if (hit) {
+        safePost(port, { type: 'source', source: 'dictionary' })
+        safePost(port, { type: 'chunk', text: formatEntry(hit) })
+        safePost(port, { type: 'done' })
+        return
+      }
     }
-    // 词库未命中 → 走词典化 AI 请求（要求词性/发音/释义格式）
+
+    // 2) 翻译缓存：同一内容避免重复翻译（重试 forceRefresh 时跳过）
+    const cacheKey = cacheKeyFor('translate', selection)
+    if (!request.forceRefresh) {
+      const cached = await getCachedTranslation(cacheKey)
+      if (cached) {
+        console.debug('[WebAI] translation cache hit', cacheKey)
+        safePost(port, { type: 'source', source: 'ai' })
+        safePost(port, { type: 'chunk', text: cached })
+        safePost(port, { type: 'done' })
+        return
+      }
+    }
+
+    // 3) 调 AI：单词走词典化请求，语段走翻译模板；成功后写入缓存
     safePost(port, { type: 'source', source: 'ai' })
-    await streamToPort(port, settings, {
-      role: 'user',
-      content: `${WORD_FORMAT_HINT}\n\n单词：${selection}`,
-    }, signal)
+    const userMessage = isSingleWord(selection)
+      ? { role: 'user' as const, content: `${WORD_FORMAT_HINT}\n\n单词：${selection}` }
+      : {
+          role: 'user' as const,
+          content: renderTemplate(action.prompt, {
+            selection: request.payload.text,
+            context: request.payload.context,
+            url: request.payload.url,
+            title: request.payload.title,
+            question: request.question,
+          }),
+        }
+    const result = await streamToPort(port, settings, userMessage, signal)
+    if (result.trim()) {
+      await setCachedTranslation(cacheKey, result)
+      console.debug('[WebAI] translation cached', cacheKey)
+    }
     safePost(port, { type: 'done' })
     return
   }
@@ -115,13 +146,16 @@ async function handleRun(
   safePost(port, { type: 'done' })
 }
 
-/** 用指定 user 消息发起一次流式对话并逐块转发到 port */
+/**
+ * 用指定 user 消息发起一次流式对话并逐块转发到 port。
+ * @returns 本次完整输出文本（供缓存写入；中断/出错时抛异常不返回）
+ */
 async function streamToPort(
   port: Browser.runtime.Port,
   settings: Settings,
   userMessage: { role: 'user'; content: string },
   signal: AbortSignal,
-): Promise<void> {
+): Promise<string> {
   const provider = createProvider(settings.provider)
   const stream = await provider.chat({
     messages: [
@@ -132,9 +166,12 @@ async function streamToPort(
     maxTokens: settings.provider.maxTokens,
     signal,
   })
+  let collected = ''
   for await (const chunk of stream) {
     safePost(port, { type: 'chunk', text: chunk })
+    collected += chunk
   }
+  return collected
 }
 
 /** Options 页"测试连接"：发一个最小请求验证配置可用 */

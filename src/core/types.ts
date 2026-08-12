@@ -104,6 +104,8 @@ export interface RunRequest {
   payload: SelectionPayload
   /** Ask Action 的用户输入问题 */
   question?: string
+  /** 为 true 时绕过翻译缓存强制重新生成（用户点"重试"） */
+  forceRefresh?: boolean
 }
 
 /** 收藏条目：用户在结果面板点"收藏"时保存 */

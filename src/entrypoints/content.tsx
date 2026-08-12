@@ -277,7 +277,8 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   function onRetry() {
     if (!requestRef.current) return
     setPanel((p) => (p ? { ...p, status: 'streaming', text: '', error: null } : p))
-    runRequest(requestRef.current)
+    // forceRefresh：重试必须绕过翻译缓存，强制重新生成
+    runRequest({ ...requestRef.current, forceRefresh: true })
   }
 
   function onAbort() {
