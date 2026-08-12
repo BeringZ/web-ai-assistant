@@ -121,3 +121,10 @@ export interface CollectionEntry {
   source: 'dictionary' | 'ai'
   createdAt: number
 }
+
+/** 词库词条：内置词库与用户词库共用同一结构 */
+export interface DictionaryEntry {
+  word: string
+  phonetic?: string
+  meanings: Array<{ pos: string; meaning: string }>
+}

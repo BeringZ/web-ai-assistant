@@ -4,7 +4,7 @@
  * 覆盖：词/语段判定、词库命中/未命中、输出格式。
  */
 import { describe, expect, it } from 'vitest'
-import { DICTIONARY_SIZE, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupWord } from '@/dictionary'
+import { BUILTIN_WORDS, DICTIONARY_SIZE, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords } from '@/dictionary'
 
 describe('isSingleWord（词 vs 语段判定）', () => {
   it('单个英文词判为词', () => {
@@ -28,9 +28,9 @@ describe('isSingleWord（词 vs 语段判定）', () => {
   })
 })
 
-describe('lookupWord（词库查询）', () => {
-  it('命中词库：忽略大小写', () => {
-    const hit = lookupWord('Hello')
+describe('lookupInWords（词表查询）', () => {
+  it('命中内置词库：忽略大小写', () => {
+    const hit = lookupInWords(BUILTIN_WORDS, 'Hello')
     expect(hit).not.toBeNull()
     expect(hit!.word).toBe('hello')
     expect(hit!.phonetic).toBeTruthy()
@@ -38,8 +38,16 @@ describe('lookupWord（词库查询）', () => {
   })
 
   it('未命中返回 null', () => {
-    expect(lookupWord('supercalifragilistic')).toBeNull()
-    expect(lookupWord('')).toBeNull()
+    expect(lookupInWords(BUILTIN_WORDS, 'supercalifragilistic')).toBeNull()
+    expect(lookupInWords(BUILTIN_WORDS, '')).toBeNull()
+  })
+
+  it('用户词库优先于内置（同名覆盖）', () => {
+    const custom = [
+      { word: 'hello', phonetic: '/x/', meanings: [{ pos: 'n.', meaning: '自定义释义' }] },
+    ]
+    const hit = lookupInWords(custom, 'hello') ?? lookupInWords(BUILTIN_WORDS, 'hello')
+    expect(hit!.meanings[0]!.meaning).toBe('自定义释义')
   })
 
   it('词库已加载（非空）', () => {

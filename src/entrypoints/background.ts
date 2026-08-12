@@ -23,8 +23,9 @@ import { getSettings } from '@/core/storage'
 import { findAction } from '@/actions/manager'
 import { renderTemplate } from '@/actions/template'
 import { createProvider } from '@/providers'
-import { WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupWord } from '@/dictionary'
+import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords } from '@/dictionary'
 import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
+import { getUserDictionaryWords } from '@/core/storage'
 
 export default defineBackground(() => {
   /* ---------------- 通道一：Port 长连接（流式） ---------------- */
@@ -84,11 +85,12 @@ async function handleRun(
 
   const selection = request.payload.text.trim()
 
-  // ── 翻译操作：本地词库 → 翻译缓存 → AI 三级分流 ──
+  // ── 翻译操作：本地词库（内置+用户）→ 翻译缓存 → AI 三级分流 ──
   if (action.id === 'translate') {
-    // 1) 本地词库（仅单个英文词）：权威释义，秒出且不耗 Token
+    // 1) 本地词库（仅单个英文词）：用户词库优先（可修正/扩展释义），内置兜底
     if (isSingleWord(selection)) {
-      const hit = lookupWord(selection)
+      const userWords = await getUserDictionaryWords()
+      const hit = lookupInWords(userWords, selection) ?? lookupInWords(BUILTIN_WORDS, selection)
       if (hit) {
         safePost(port, { type: 'source', source: 'dictionary' })
         safePost(port, { type: 'chunk', text: formatEntry(hit) })

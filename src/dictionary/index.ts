@@ -1,36 +1,28 @@
 /**
- * dictionary/index.ts —— 本地词库 harness
+ * dictionary/index.ts —— 本地词库（纯逻辑层，不含存储）
  *
- * 职责：判断"选中内容是一个英文词还是语段"，以及词的本地查词。
+ * 职责：
+ * 1. 判断"选中内容是词还是语段"（isSingleWord）
+ * 2. 提供内置词库数据（BUILTIN_WORDS，随构建打包，只读）
+ * 3. 在词表数组中查词（lookupInWords，大小写不敏感）
+ * 4. 词条格式化 / 词典化 AI 格式要求
  *
- * 分流策略（在 background 中执行，词库数据不进入 Content Script）：
- *   选中文本
- *     ├─ 单个英文词 → 本地词库查词
- *     │    ├─ 命中 → 直接输出（发音/词性/释义），不调用 AI（省 Token、秒出）
- *     │    └─ 未命中 → 走 AI，但提示词要求"词典格式"输出
- *     └─ 语段 → 走 Action 模板正常翻译
+ * 分层说明：用户词库的持久化在 core/storage.ts（user_dictionary），
+ * 查询时由 background 组装「用户词库优先 + 内置兜底」，本模块保持纯函数可测。
  */
 import data from './data.json'
+import type { DictionaryEntry } from '@/core/types'
 
-export interface DictionaryEntry {
-  word: string
-  phonetic?: string
-  meanings: Array<{ pos: string; meaning: string }>
-}
+/** 内置词库（随扩展打包，只读） */
+export const BUILTIN_WORDS: DictionaryEntry[] = data.words
 
-/** 模块加载时构建一次索引（大小写不敏感），避免每次查询都遍历 */
-const INDEX = new Map<string, DictionaryEntry>()
-for (const w of data.words) {
-  INDEX.set(w.word.toLowerCase(), w)
-}
+export const DICTIONARY_SIZE = BUILTIN_WORDS.length
 
-export const DICTIONARY_SIZE = INDEX.size
-
-/** 查词：精确匹配，忽略大小写；未命中返回 null */
-export function lookupWord(word: string): DictionaryEntry | null {
+/** 在词表数组中精确查词（忽略大小写）；未命中返回 null */
+export function lookupInWords(words: DictionaryEntry[], word: string): DictionaryEntry | null {
   const key = word.trim().toLowerCase()
   if (!key) return null
-  return INDEX.get(key) ?? null
+  return words.find((w) => w.word.toLowerCase() === key) ?? null
 }
 
 /**
@@ -44,7 +36,7 @@ export function isSingleWord(text: string): boolean {
   return /^[a-zA-Z]+(?:['’-][a-zA-Z]+)*$/.test(t)
 }
 
-/** 词库条目 → Markdown 输出（与 AI 词典格式保持一致，渲染层通用） */
+/** 词条 → Markdown 输出（与 AI 词典格式保持一致，渲染层通用） */
 export function formatEntry(entry: DictionaryEntry): string {
   const lines: string[] = []
   lines.push(`**${entry.word}**${entry.phonetic ? `  /${entry.phonetic}/` : ''}`)

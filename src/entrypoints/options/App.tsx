@@ -11,12 +11,28 @@
  * 编辑流程：所有改动先落在本地 state，点"保存设置"统一持久化。
  * "测试连接"直接用当前表单值调用 background（无需先保存）。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { browser } from 'wxt/browser'
-import type { Action, ContextLevel, ProviderConfig, Settings } from '@/core/types'
+import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, ProviderConfig, Settings } from '@/core/types'
 import { CONTEXT_LEVEL_LABELS, defaultProviderConfig } from '@/core/types'
-import { getSettings, saveSettings } from '@/core/storage'
+import {
+  getCollections,
+  getSettings,
+  getUserDictionaryWords,
+  removeCollection,
+  replaceCollections,
+  saveSettings,
+  setUserDictionaryWords,
+} from '@/core/storage'
 import { collectActions, createCustomAction } from '@/actions/manager'
+import { BUILTIN_WORDS } from '@/dictionary'
+import {
+  downloadJson,
+  mergeCollections,
+  mergeDictionary,
+  parseCollectionsImport,
+  parseDictionaryImport,
+} from '@/core/importExport'
 import type { BackgroundToOptions } from '@/core/messaging'
 
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
@@ -32,6 +48,17 @@ export function SettingsPanel() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
 
+  /* ---- 词库 / 收藏管理状态 ---- */
+  const [userWords, setUserWords] = useState<DictionaryEntry[]>([])
+  const [dictSearch, setDictSearch] = useState('')
+  const [dictNotice, setDictNotice] = useState<string | null>(null)
+  const [collections, setCollections] = useState<CollectionEntry[]>([])
+  const [colNotice, setColNotice] = useState<string | null>(null)
+  const dictFileRef = useRef<HTMLInputElement>(null)
+  const colFileRef = useRef<HTMLInputElement>(null)
+
+  /** 内置 + 用户合并后的完整词库（用于展示/导出） */
+  const allWords = mergeDictionary(userWords, BUILTIN_WORDS)
   /** 内置（应用覆盖后）+ 自定义 的汇总，用于列表展示与菜单一致 */
   const allActions = collectActions(customActions, overrides)
 
@@ -43,6 +70,8 @@ export function SettingsPanel() {
       setOverrides(s.actionOverrides)
       setLoaded(true)
     })
+    getUserDictionaryWords().then(setUserWords)
+    getCollections().then(setCollections)
   }, [])
 
   const patchProvider = (patch: Partial<ProviderConfig>) =>
@@ -127,6 +156,63 @@ export function SettingsPanel() {
 
   const removeAction = (id: string) =>
     setCustomActions((list) => list.filter((a) => a.id !== id))
+
+  /* ---- 词库导入导出 ---- */
+
+  const exportDictionary = () => {
+    downloadJson('web-ai-dictionary.json', {
+      type: 'web-ai-dictionary',
+      version: 1,
+      words: allWords,
+    })
+  }
+
+  const handleDictImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 允许重复选择同一文件
+    if (!file) return
+    try {
+      const text = await file.text()
+      const { items, skipped } = parseDictionaryImport(text)
+      const merged = mergeDictionary(userWords, items)
+      await setUserDictionaryWords(merged)
+      setUserWords(merged)
+      setDictNotice(`已导入 ${items.length} 条${skipped ? `，跳过 ${skipped} 条非法条目` : ''}`)
+    } catch (err) {
+      setDictNotice(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  /* ---- 收藏导入导出 ---- */
+
+  const exportCollections = () => {
+    downloadJson('web-ai-collections.json', {
+      type: 'web-ai-collections',
+      version: 1,
+      items: collections,
+    })
+  }
+
+  const handleColImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const text = await file.text()
+      const { items, skipped } = parseCollectionsImport(text)
+      const merged = mergeCollections(collections, items)
+      await replaceCollections(merged)
+      setCollections(merged)
+      setColNotice(`已导入 ${items.length} 条${skipped ? `，跳过 ${skipped} 条非法条目` : ''}`)
+    } catch (err) {
+      setColNotice(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const handleRemoveCollection = async (id: string) => {
+    const next = await removeCollection(id)
+    setCollections(next)
+  }
 
   if (!loaded) return <div className="panel-loading">加载中…</div>
 
@@ -358,6 +444,109 @@ export function SettingsPanel() {
             {saved ? '✓ 已保存' : saving ? '保存中…' : '保存设置'}
           </button>
         </div>
+      </section>
+
+      {/* ---------------- 本地词库 ---------------- */}
+      <section className="card">
+        <div className="section-head">
+          <h2>本地词库</h2>
+          <div className="toolbar">
+            <button type="button" className="btn small" onClick={exportDictionary}>导出词库</button>
+            <button type="button" className="btn small" onClick={() => dictFileRef.current?.click()}>导入词库</button>
+            <input
+              ref={dictFileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={handleDictImport}
+            />
+          </div>
+        </div>
+        <p className="hint">
+          翻译单个英文词时优先查本地词库（命中直接输出，不耗 Token）。内置 {BUILTIN_WORDS.length} 词 +
+          自定义 {userWords.length} 词；导入的词条可覆盖内置释义，导出的 JSON 可备份或迁移到其他设备。
+        </p>
+
+        <input
+          className="search"
+          type="text"
+          placeholder="搜索单词或释义…"
+          value={dictSearch}
+          onChange={(e) => setDictSearch(e.target.value)}
+        />
+
+        {dictNotice && <p className={`test-result ${dictNotice.includes('失败') ? 'fail' : 'ok'}`}>{dictNotice}</p>}
+
+        <ul className="dict-list">
+          {[...(dictSearch.trim()
+            ? allWords.filter((w) => {
+                const q = dictSearch.trim().toLowerCase()
+                return (
+                  w.word.toLowerCase().includes(q) ||
+                  w.meanings.some((m) => m.meaning.toLowerCase().includes(q))
+                )
+              })
+            : allWords
+          )]
+            .sort((a, b) => a.word.localeCompare(b.word))
+            .map((w) => (
+            <li key={w.word.toLowerCase()} className="dict-item">
+              <span className="dict-word">{w.word}</span>
+              {w.phonetic && <span className="dict-phonetic">/{w.phonetic}/</span>}
+              <span className="dict-meaning">{w.meanings.map((m) => `${m.pos} ${m.meaning}`).join('；')}</span>
+              {userWords.some((u) => u.word.toLowerCase() === w.word.toLowerCase()) && (
+                <span className="badge">自定义</span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {allWords.length === 0 && <p className="empty">词库为空</p>}
+      </section>
+
+      {/* ---------------- 收藏 ---------------- */}
+      <section className="card">
+        <div className="section-head">
+          <h2>收藏</h2>
+          <div className="toolbar">
+            <button type="button" className="btn small" onClick={exportCollections}>导出收藏</button>
+            <button type="button" className="btn small" onClick={() => colFileRef.current?.click()}>导入收藏</button>
+            <input
+              ref={colFileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={handleColImport}
+            />
+          </div>
+        </div>
+        <p className="hint">
+          结果面板点「收藏」的内容保存在这里，共 {collections.length} 条。
+          导入会按条目 id 去重合并，不会清空现有数据。
+        </p>
+
+        {colNotice && <p className={`test-result ${colNotice.includes('失败') ? 'fail' : 'ok'}`}>{colNotice}</p>}
+
+        {collections.length === 0 ? (
+          <p className="empty">还没有收藏。翻译结果出来后点结果框里的「收藏」即可。</p>
+        ) : (
+          <ul className="col-list">
+            {collections.map((c) => (
+              <li key={c.id} className="col-item">
+                <div className="col-info">
+                  <span className="col-source">{c.sourceText.length > 60 ? `${c.sourceText.slice(0, 60)}…` : c.sourceText}</span>
+                  <span className="col-meta">
+                    <span className="badge">{c.actionName}</span>
+                    <span className={`badge ${c.source === 'dictionary' ? 'badge-dict' : ''}`}>
+                      {c.source === 'dictionary' ? '词库' : 'AI'}
+                    </span>
+                    <span className="col-time">{new Date(c.createdAt).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                  </span>
+                </div>
+                <button type="button" className="btn small danger" onClick={() => handleRemoveCollection(c.id)}>删除</button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </>
   )

@@ -6,11 +6,12 @@
  * Content Script 不 import 本模块 —— 这就是"API Key 不出扩展"的类型级保证。
  */
 import { browser } from 'wxt/browser'
-import type { Action, CollectionEntry, ContextLevel, Settings } from './types'
+import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, Settings } from './types'
 import { defaultSettings } from './types'
 
 const STORAGE_KEY = 'settings'
 const COLLECTIONS_KEY = 'collections'
+const USER_DICTIONARY_KEY = 'user_dictionary'
 /** 收藏上限：防止无限制膨胀（后续可加管理页） */
 const COLLECTIONS_LIMIT = 300
 
@@ -139,4 +140,44 @@ export async function toggleCollection(entry: {
 export async function isCollected(actionId: string, sourceText: string): Promise<boolean> {
   const list = await getCollections()
   return list.some((c) => c.actionId === actionId && c.sourceText === sourceText)
+}
+
+/** 删除单条收藏（设置页管理用） */
+export async function removeCollection(id: string): Promise<CollectionEntry[]> {
+  const list = await getCollections()
+  const next = list.filter((c) => c.id !== id)
+  await saveCollections(next)
+  return next
+}
+
+/** 整体写入收藏（导入时合并后调用） */
+export async function replaceCollections(list: CollectionEntry[]): Promise<void> {
+  await saveCollections(list.slice(0, COLLECTIONS_LIMIT))
+}
+
+/* ---------------- 用户词库（导入导出 / 查询用） ---------------- */
+
+/** 校验词条结构（导入时宽容跳过非法条目） */
+export function isValidDictionaryEntry(e: unknown): e is DictionaryEntry {
+  if (typeof e !== 'object' || e === null) return false
+  const entry = e as DictionaryEntry
+  return (
+    typeof entry.word === 'string' &&
+    entry.word.trim().length > 0 &&
+    Array.isArray(entry.meanings) &&
+    entry.meanings.length > 0 &&
+    entry.meanings.every((m) => m && typeof m.pos === 'string' && typeof m.meaning === 'string')
+  )
+}
+
+/** 读取用户词库（不含内置词库；空/损坏时返回 []） */
+export async function getUserDictionaryWords(): Promise<DictionaryEntry[]> {
+  const raw = await browser.storage.local.get(USER_DICTIONARY_KEY)
+  const list = raw[USER_DICTIONARY_KEY] as DictionaryEntry[] | undefined
+  return Array.isArray(list) ? list.filter(isValidDictionaryEntry) : []
+}
+
+/** 写入用户词库 */
+export async function setUserDictionaryWords(words: DictionaryEntry[]): Promise<void> {
+  await browser.storage.local.set({ [USER_DICTIONARY_KEY]: words.filter(isValidDictionaryEntry) })
 }

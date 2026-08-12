@@ -317,6 +317,110 @@ input[type='range'] {
   color: var(--text-dim);
 }
 
+/* ---------------- 词库 / 收藏管理 ---------------- */
+
+.toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.search {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.dict-list {
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.dict-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.dict-item:hover {
+  background: var(--bg);
+}
+
+.dict-word {
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 90px;
+}
+
+.dict-phonetic {
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  flex-shrink: 0;
+}
+
+.dict-meaning {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dict-item .badge {
+  flex-shrink: 0;
+}
+
+.col-list {
+  list-style: none;
+}
+
+.col-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.col-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.col-source {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.col-time {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.badge-dict {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+  border-color: transparent;
+}
+
 .action-prompt {
   font-size: 12px;
   color: var(--text-dim);
