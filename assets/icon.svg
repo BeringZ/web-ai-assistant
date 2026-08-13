@@ -1,19 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3b82f6"/>
-      <stop offset="1" stop-color="#1d4ed8"/>
-    </linearGradient>
-  </defs>
-  <!-- 圆角蓝底 -->
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <!-- 纯蓝圆角底 -->
+  <rect x="0" y="0" width="128" height="128" rx="26" fill="#2563eb"/>
   <!-- 白色圆体「译」 -->
   <text
     x="64"
-    y="72"
+    y="76"
     text-anchor="middle"
     dominant-baseline="central"
-    font-size="76"
+    font-size="84"
     font-weight="700"
     fill="#ffffff"
     font-family="PingFang SC, Hiragino Sans GB, Microsoft YaHei, system-ui, sans-serif"
