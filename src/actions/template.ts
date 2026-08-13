@@ -17,6 +17,12 @@ export interface TemplateVars {
   url: string
   title: string
   question?: string
+  /** 选区来源：web / pdf（网页时为空） */
+  source?: string
+  /** PDF 页码（网页时为空） */
+  page?: string
+  /** PDF 总页数（网页时为空） */
+  pageCount?: string
 }
 
 const VAR_RE = /\{\{\s*([a-zA-Z]+)\s*\}\}/g

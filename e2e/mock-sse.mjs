@@ -1,30 +1,69 @@
 /**
- * e2e/mock-sse.mjs —— 最小 OpenAI-compatible API mock server
+ * e2e/mock-sse.mjs —— E2E mock server
  *
- * 仅 E2E 使用：接受 /v1/chat/completions，返回分块 "你好！/hello" 之类内容。
+ * - POST /v1/chat/completions → 分块 SSE（模拟 OpenAI-compatible API）
+ * - GET  /test.html          → 测试页面（划词用）
+ *
  * 跑：node e2e/mock-sse.mjs   （端口 4014）
  */
 import http from 'node:http'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
 const PORT = Number(process.env.MOCK_PORT || 4014)
+const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures')
 
 const REPLY = '这是一段 mock 回复。Hello, world. 你好，世界。'
 
-function chunkSSE(text, delayMs = 25) {
-  // 把文本按字符切成多个 SSE 事件，模拟流式
-  return text.split('').map((ch, i) =>
-    `data: ${JSON.stringify({ choices: [{ delta: { content: ch }, finish_reason: null }] })}\n\n`,
-  ).concat(['data: [DONE]\n\n'])
+function chunkSSE(text, delayMs = 20) {
+  return text
+    .split('')
+    .map((ch) => `data: ${JSON.stringify({ choices: [{ delta: { content: ch }, finish_reason: null }] })}\n\n`)
+    .concat(['data: [DONE]\n\n'])
 }
 
+const TEST_PAGE = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>E2E Test Page</title>
+<style>body{font-size:18px;line-height:1.8;padding:24px;max-width:640px;margin:0 auto}
+p{margin:18px 0}</style></head>
+<body>
+  <h1>Test Page</h1>
+  <p id="para1">The quick brown fox jumps over the lazy dog. This is the first paragraph for selection testing.</p>
+  <p id="para2">Hello world. This is a longer paragraph that should give enough text to select multiple words and test the floating toolbar behavior across the page.</p>
+  <div style="height:900px"></div>
+  <p id="para3">Bottom content. The panel should follow the selection even when the page is scrolled.</p>
+</body>
+</html>`
+
 const server = http.createServer((req, res) => {
-  // CORS 让所有路径允许，便于测试
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', '*')
   if (req.method === 'OPTIONS') {
     res.statusCode = 204
     return res.end()
+  }
+
+  if (req.url === '/test.html' && req.method === 'GET') {
+    res.statusCode = 200
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    return res.end(TEST_PAGE)
+  }
+
+  // E2E PDF fixtures
+  if (req.url?.startsWith('/fixtures/') && req.method === 'GET') {
+    const name = req.url.split('/').pop()
+    const file = path.join(FIXTURES, name)
+    try {
+      res.statusCode = 200
+      res.setHeader('Content-Type', 'application/pdf')
+      return res.end(readFileSync(file))
+    } catch {
+      res.statusCode = 404
+      return res.end('not found')
+    }
   }
 
   if (req.url?.startsWith('/v1/chat/completions') && req.method === 'POST') {
@@ -41,7 +80,7 @@ const server = http.createServer((req, res) => {
         return res.end()
       }
       res.write(parts[i++])
-    }, 25)
+    }, 20)
     req.on('close', () => clearInterval(t))
     return
   }
@@ -51,5 +90,5 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(PORT, () => {
-  console.log(`mock SSE listening on http://127.0.0.1:${PORT}`)
+  console.log(`mock server on http://127.0.0.1:${PORT}`)
 })

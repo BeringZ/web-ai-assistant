@@ -123,39 +123,52 @@ let migrationDone = false
 
 async function ensureMigration(): Promise<void> {
   if (migrationDone) return
-  migrationDone = true
 
-  const raw = await browser.storage.local.get([
-    LEGACY_SETTINGS_KEY,
-    PUBLIC_KEY,
-    PROVIDER_KEY,
-    SCHEMA_KEY,
-  ])
+  try {
+    const raw = await browser.storage.local.get([
+      LEGACY_SETTINGS_KEY,
+      PUBLIC_KEY,
+      PROVIDER_KEY,
+      SCHEMA_KEY,
+    ])
+    const legacy = raw[LEGACY_SETTINGS_KEY] as
+      | {
+          provider?: Partial<ProviderSettings>
+          contextLevel?: ContextLevel
+          actions?: Action[]
+          actionOverrides?: PublicSettings['actionOverrides']
+          panelCloseMode?: PanelCloseMode
+        }
+      | undefined
 
-  // 新结构已存在，无需迁移
-  if (raw[PUBLIC_KEY] || raw[PROVIDER_KEY]) return
-  // 无旧数据
-  if (!raw[LEGACY_SETTINGS_KEY]) return
+    // 分别检查两个新 key：缺失的独立迁移，避免"一个存在就跳过另一个"的部分迁移
+    if (legacy && !raw[PUBLIC_KEY]) {
+      await browser.storage.local.set({
+        [PUBLIC_KEY]: normalizePublicSettings({
+          contextLevel: legacy.contextLevel,
+          actions: legacy.actions,
+          actionOverrides: legacy.actionOverrides,
+          panelCloseMode: legacy.panelCloseMode,
+        }),
+      })
+    }
+    if (legacy && !raw[PROVIDER_KEY]) {
+      await browser.storage.local.set({
+        [PROVIDER_KEY]: normalizeProviderSettings(legacy.provider),
+      })
+    }
 
-  const old = raw[LEGACY_SETTINGS_KEY] as {
-    provider?: Partial<ProviderSettings>
-    contextLevel?: ContextLevel
-    actions?: Action[]
-    actionOverrides?: PublicSettings['actionOverrides']
-    panelCloseMode?: PanelCloseMode
+    if (legacy && (raw[PUBLIC_KEY] || raw[PROVIDER_KEY])) {
+      await browser.storage.local.set({ [SCHEMA_KEY]: STORAGE_SCHEMA_VERSION })
+      await browser.storage.local.remove(LEGACY_SETTINGS_KEY)
+    }
+
+    migrationDone = true
+  } catch (error) {
+    // 迁移失败不置位：本次 Service Worker 生命周期内后续访问仍会重试
+    migrationDone = false
+    throw error
   }
-
-  await browser.storage.local.set({
-    [PUBLIC_KEY]: normalizePublicSettings({
-      contextLevel: old.contextLevel,
-      actions: old.actions,
-      actionOverrides: old.actionOverrides,
-      panelCloseMode: old.panelCloseMode,
-    }),
-    [PROVIDER_KEY]: normalizeProviderSettings(old.provider),
-    [SCHEMA_KEY]: STORAGE_SCHEMA_VERSION,
-  })
-  await browser.storage.local.remove(LEGACY_SETTINGS_KEY)
 }
 
 /* ---------------- 收藏管理（Content Script 读写） ---------------- */

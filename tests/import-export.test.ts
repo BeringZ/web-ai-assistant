@@ -44,6 +44,7 @@ describe('parseDictionaryImport', () => {
 
   it('非词库文件抛错', () => {
     expect(() => parseDictionaryImport('{"type":"web-ai-collections"}')).toThrow(/词库/)
+    expect(() => parseDictionaryImport('{"type":"web-ai-dictionary","version":2,"words":[]}')).toThrow(/版本/)
     expect(() => parseDictionaryImport('not json')).toThrow(/JSON/)
   })
 })
@@ -63,6 +64,22 @@ describe('parseCollectionsImport', () => {
     const { items, skipped } = parseCollectionsImport(colFile([valid, { ...valid, id: 123 }]))
     expect(items).toHaveLength(1)
     expect(skipped).toBe(1)
+  })
+
+  it('缺 actionId 或 createdAt 非有限数 → 跳过', () => {
+    const { items, skipped } = parseCollectionsImport(
+      colFile([
+        { ...valid, actionId: undefined }, // 缺 actionId
+        { ...valid, createdAt: NaN }, // createdAt 非法
+        valid,
+      ]),
+    )
+    expect(items).toHaveLength(1)
+    expect(skipped).toBe(2)
+  })
+
+  it('version 不匹配抛错', () => {
+    expect(() => parseCollectionsImport('{"type":"web-ai-collections","version":2,"items":[]}')).toThrow(/版本/)
   })
 })
 

@@ -21,9 +21,22 @@ export const PORT_NAME = 'web-ai-assistant'
 
 /* ---------------- 协议消息（discriminated union，三端共享） ---------------- */
 
+/** 收藏切换入参（不依赖完整 CollectionEntry，Content Script 侧无需 import 该类型） */
+export interface CollectionEntryInput {
+  sourceText: string
+  result: string
+  actionId: string
+  actionName: string
+  source: 'dictionary' | 'ai'
+}
+
 export type ContentToBackground =
   | { type: 'run'; request: RunRequest }
   | { type: 'abort' }
+  // ---- Storage 代理：Content Script 不直接访问 chrome.storage ----
+  | { type: 'get-content-context' }
+  | { type: 'get-collections' }
+  | { type: 'toggle-collection'; entry: CollectionEntryInput }
 
 export type BackgroundToContent =
   | { type: 'chunk'; text: string }
@@ -47,7 +60,15 @@ export function isContentMessage(msg: unknown): msg is ContentToBackground {
     const run = msg as ContentToBackground & { request?: unknown }
     return !!run.request && typeof run.request === 'object'
   }
-  return m.type === 'abort'
+  if (m.type === 'toggle-collection') {
+    const t = msg as ContentToBackground & { entry?: unknown }
+    return !!t.entry && typeof t.entry === 'object'
+  }
+  return (
+    m.type === 'abort' ||
+    m.type === 'get-content-context' ||
+    m.type === 'get-collections'
+  )
 }
 
 export function isOptionsMessage(msg: unknown): msg is OptionsToBackground {

@@ -115,8 +115,8 @@ export class OpenAICompatibleProvider implements AIProvider {
 
         buffer += decoder.decode(value, { stream: true })
 
-        // SSE 事件以空行分隔；缓冲区里可能残留半行，留在 buffer 里等下一块
-        const events = buffer.split('\n\n')
+        // SSE 事件以空行分隔；兼容 \n\n 与 \r\n\r\n；缓冲区残留半行等下一块
+        const events = buffer.split(/\r?\n\r?\n/)
         buffer = events.pop() ?? ''
 
         for (const event of events) {
@@ -139,6 +139,20 @@ export class OpenAICompatibleProvider implements AIProvider {
           if (delta) yield delta
         }
       }
+
+      // 部分服务结尾没有空行分隔符：处理缓冲区里残余的最后一个事件
+      if (buffer.trim()) {
+        const data = extractDataField(buffer)
+        if (data && data !== '[DONE]') {
+          try {
+            const json = JSON.parse(data) as DeltaChunk
+            const delta = json.choices?.[0]?.delta?.content
+            if (delta) yield delta
+          } catch {
+            /* 残余片段不完整，忽略 */
+          }
+        }
+      }
     } finally {
       // 无论正常结束还是 abort，都要释放 reader，避免 Service Worker 挂死
       reader.releaseLock()
@@ -146,9 +160,9 @@ export class OpenAICompatibleProvider implements AIProvider {
   }
 }
 
-/** 从一条 SSE 事件文本中提取 `data:` 字段内容 */
+/** 从一条 SSE 事件文本中提取 `data:` 字段内容（兼容 \n 与 \r\n 行尾） */
 function extractDataField(event: string): string | null {
-  for (const line of event.split('\n')) {
+  for (const line of event.split(/\r?\n/)) {
     if (line.startsWith('data:')) {
       return line.slice(5).trim()
     }

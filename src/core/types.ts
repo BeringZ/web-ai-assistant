@@ -107,7 +107,7 @@ export function defaultPublicSettings(): PublicSettings {
   }
 }
 
-/** 选中内容载荷：Content Script 组装后交给 Service Worker */
+/** 选中内容载荷：Content Script / PDF 阅读器组装后交给 Service Worker */
 export interface SelectionPayload {
   /** 用户选中的原始文本 */
   text: string
@@ -115,6 +115,13 @@ export interface SelectionPayload {
   context: string
   url: string
   title: string
+  /** 选区来源：普通网页 / PDF 阅读器 */
+  source?: 'web' | 'pdf'
+  /** PDF 来源时的页码信息 */
+  pdf?: {
+    pageNumber: number
+    pageCount: number
+  }
 }
 
 /** 一次 AI 运行请求 */

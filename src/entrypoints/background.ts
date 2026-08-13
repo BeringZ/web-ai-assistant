@@ -19,18 +19,30 @@ import {
   type BackgroundToContent,
   type BackgroundToOptions,
 } from '@/core/messaging'
-import { getProviderSettings, getPublicSettings } from '@/core/storage'
+import { getProviderSettings, getPublicSettings, getCollections, getContentContext, getUserDictionaryWords, setUserDictionaryWords, toggleCollection } from '@/core/storage'
 import { findAction } from '@/actions/manager'
+import { findBuiltinAction } from '@/actions/builtin'
 import { renderTemplate } from '@/actions/template'
 import { createProvider } from '@/providers'
 import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords, parseAiWordEntry } from '@/dictionary'
 import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
-import { getUserDictionaryWords, setUserDictionaryWords } from '@/core/storage'
 import { mergeDictionary } from '@/core/importExport'
 import { debug } from '@/core/debug'
 
 
 export default defineBackground(() => {
+  /* ---------------- 安全：Storage 仅 Trusted Context 可访问 ----------------
+   * Chrome 102+ 的 storage.local 默认允许 Content Script 访问，
+   * 必须显式收紧到 TRUSTED_CONTEXTS（扩展页面 + Service Worker），
+   * 这样 Content Script 即使被恶意网页注入也无法读取 provider_settings。
+   * Firefox 无此 API，做能力检测跳过。
+   */
+  if (browser.storage.local.setAccessLevel) {
+    browser.storage.local
+      .setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
+      .catch(() => {})
+  }
+
   /* ---------------- 通道一：Port 长连接（流式） ---------------- */
 
   browser.runtime.onConnect.addListener((port) => {
@@ -46,6 +58,7 @@ export default defineBackground(() => {
         controller.abort()
         return
       }
+      if (msg.type !== 'run') return // storage 代理消息走 sendMessage 通道，不经过 Port
 
       handleRun(port, msg.request, controller.signal).catch((err) => {
         // AbortError 是用户主动取消，不算错误
@@ -59,14 +72,30 @@ export default defineBackground(() => {
     port.onDisconnect.addListener(() => controller.abort())
   })
 
-  /* ---------------- 通道二：sendMessage（Options 页测试连接） ---------------- */
+  /* ---------------- 通道二：sendMessage（Options 测试连接 + Content Storage 代理） ---------------- */
 
-  browser.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
-    if (!isOptionsMessage(msg)) return false
-    testProvider(msg.config)
-      .then((result) => sendResponse(result))
-      .catch((err) => sendResponse({ type: 'test-result', ok: false, message: friendlyError(err) }))
-    return true // 异步响应标记
+  browser.runtime.onMessage.addListener(async (msg: unknown) => {
+    // Options：测试连接
+    if (isOptionsMessage(msg)) {
+      return testProvider(msg.config).catch((err) => ({
+        type: 'test-result' as const,
+        ok: false,
+        message: friendlyError(err),
+      }))
+    }
+    // Content Script：Storage 代理（Content Script 本身不触碰 chrome.storage）
+    if (isContentMessage(msg)) {
+      if (msg.type === 'get-content-context') {
+        return getContentContext()
+      }
+      if (msg.type === 'get-collections') {
+        return getCollections()
+      }
+      if (msg.type === 'toggle-collection') {
+        return toggleCollection(msg.entry)
+      }
+    }
+    return undefined
   })
 })
 
@@ -90,8 +119,13 @@ async function handleRun(
 
   // ── 翻译操作：本地词库（内置+用户）→ 翻译缓存 → AI 三级分流 ──
   if (action.id === 'translate') {
-    // 1) 本地词库（仅单个英文词）：用户词库优先（可修正/扩展释义），内置兜底
-    if (isSingleWord(selection)) {
+    // 词库只在"使用默认翻译 Prompt"时启用：
+    // 若用户把翻译 Prompt 改成"翻译成日语"，单词不应再走 英→中 本地词典
+    const dictionaryEligible =
+      action.prompt === findBuiltinAction('translate')?.prompt
+
+    // 1) 本地词库（仅单个英文词 + 默认 Prompt）：用户词库优先，内置兜底
+    if (dictionaryEligible && isSingleWord(selection)) {
       const userWords = await getUserDictionaryWords()
       const hit = lookupInWords(userWords, selection) ?? lookupInWords(BUILTIN_WORDS, selection)
       if (hit) {
@@ -102,8 +136,9 @@ async function handleRun(
       }
     }
 
-    // 2) 翻译缓存：同一内容避免重复翻译（重试 forceRefresh 时跳过）
-    const cacheKey = cacheKeyFor('translate', selection)
+    // 2) 翻译缓存：key 含 Prompt 指纹（用户改 Prompt 后旧缓存自然失效）
+    const promptForCache = dictionaryEligible ? WORD_FORMAT_HINT : action.prompt
+    const cacheKey = cacheKeyFor('translate', promptForCache, selection)
     if (!request.forceRefresh) {
       const cached = await getCachedTranslation(cacheKey)
       if (cached) {
@@ -127,14 +162,17 @@ async function handleRun(
             url: request.payload.url,
             title: request.payload.title,
             question: request.question,
+            source: request.payload.source ?? 'web',
+            page: request.payload.pdf ? String(request.payload.pdf.pageNumber) : '',
+            pageCount: request.payload.pdf ? String(request.payload.pdf.pageCount) : '',
           }),
         }
     const result = await streamToPort(port, providerSettings, userMessage, signal)
     if (result.trim()) {
       await setCachedTranslation(cacheKey, result)
       debug('translation cached', cacheKey)
-      // 单个英文词的 AI 翻译结果自动收录进用户词库（下次秒出不耗 Token）
-      if (isSingleWord(selection)) {
+      // AI 翻译的单词自动收录词库：同样只在默认翻译 Prompt 下（避免"译成日语"污染中文词库）
+      if (dictionaryEligible && isSingleWord(selection)) {
         const entry = parseAiWordEntry(selection, result)
         if (entry) {
           const current = await getUserDictionaryWords()
@@ -155,6 +193,9 @@ async function handleRun(
     url: request.payload.url,
     title: request.payload.title,
     question: request.question,
+    source: request.payload.source ?? 'web',
+    page: request.payload.pdf ? String(request.payload.pdf.pageNumber) : '',
+    pageCount: request.payload.pdf ? String(request.payload.pdf.pageCount) : '',
   })
   await streamToPort(port, providerSettings, { role: 'user', content: prompt }, signal)
   safePost(port, { type: 'done' })

@@ -16,25 +16,30 @@ import { browser, type Browser } from 'wxt/browser'
 import { createRoot, type Root } from 'react-dom/client'
 import { useEffect, useRef, useState } from 'react'
 import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, PublicSettings, RunRequest, SelectionPayload } from '@/core/types'
-import { PORT_NAME, type BackgroundToContent } from '@/core/messaging'
-import { getCollections, getContentContext, toggleCollection } from '@/core/storage'
+import { PORT_NAME, type BackgroundToContent, type CollectionEntryInput } from '@/core/messaging'
 import { collectActions } from '@/actions/manager'
 import { buildSelectionPayload, hasUsableSelection } from '@/selection/context'
 import { FloatingMenu } from '@/components/FloatingMenu'
 import { ResultPanel, type PanelState } from '@/components/ResultPanel'
+import { PANEL_WIDTH, menuPosition, panelPosition, type PanelPosition } from '@/components/position'
 import '@/components/styles.css'
 import { debug } from '@/core/debug'
 
-
-/** 结果面板定位参数：位置 + 允许的最大高度（下方空间不足时面板内部滚动） */
-interface PanelPosition {
-  x: number
-  y: number
-  maxHeight: number
+/* ---------------- Storage 代理（安全边界） ----------------
+ * Content Script 不直接访问 chrome.storage（storage.local 已收紧到
+ * TRUSTED_CONTEXTS），所有读写都经 Service Worker 转发：
+ *   content → sendMessage → background → chrome.storage
+ * 这样 Content Script 即使被注入也无法读取 provider_settings（API Key）。
+ */
+async function storageRequest<T>(msg: { type: string } & Record<string, unknown>): Promise<T> {
+  return (await browser.runtime.sendMessage(msg)) as T
 }
 
-/** 结果面板固定宽度（与 CSS .wa-panel 保持一致） */
-const PANEL_WIDTH = 420
+const getContentContextViaProxy = () => storageRequest<import('@/core/storage').ContentContext>({ type: 'get-content-context' })
+const getCollectionsViaProxy = () => storageRequest<CollectionEntry[]>({ type: 'get-collections' })
+const toggleCollectionViaProxy = (entry: CollectionEntryInput) =>
+  storageRequest<CollectionEntry[]>({ type: 'toggle-collection', entry })
+
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -80,9 +85,9 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   /** 当前任务的原文（收藏唯一性判断用） */
   const sourceTextRef = useRef<string>('')
 
-  /** 重新读取白名单上下文（初始化 / storage 变化时） */
+  /** 重新读取白名单上下文（初始化 / 每次划词前刷新，保证设置改动即时生效） */
   const reloadContentContext = async () => {
-    const ctx = await getContentContext()
+    const ctx = await getContentContextViaProxy()
     setCustomActions(ctx.customActions)
     setActionOverrides(ctx.actionOverrides)
     setContextLevel(ctx.contextLevel)
@@ -92,19 +97,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   // 初始化加载上下文 + 收藏列表
   useEffect(() => {
     reloadContentContext()
-    getCollections().then(setCollections)
-  }, [])
-
-  // 设置（Actions/上下文/关闭模式）修改后，已打开的网页即时生效
-  useEffect(() => {
-    const listener = (changes: Record<string, Browser.storage.StorageChange>, areaName: string) => {
-      if (areaName !== 'local') return
-      if (changes.public_settings) {
-        reloadContentContext()
-      }
-    }
-    browser.storage.onChanged.addListener(listener)
-    return () => browser.storage.onChanged.removeListener(listener)
+    getCollectionsViaProxy().then(setCollections)
   }, [])
 
   /* ---------- 选区监听 ---------- */
@@ -145,11 +138,14 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   }, [hostEl, contextLevel, panelCloseMode, panel]) // panel/模式变化时重新绑定，保证闭包里的判断是最新的
 
   /** 弹菜单的判定：有可用选区 + 面板未打开（MVP：一次只处理一个任务） */
-  function maybeShowMenu() {
+  async function maybeShowMenu() {
     if (panel) return
     if (!hasUsableSelection()) return
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return
+
+    // 每次划词前刷新公开设置：设置改动（新增 Action/改上下文）即时生效，无需刷新网页
+    await reloadContentContext()
 
     // 快照 Range：用户点菜单时选区可能已被页面清掉
     rangeRef.current = sel.getRangeAt(0).cloneRange()
@@ -174,54 +170,6 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     if (rect.width === 0 && rect.height === 0) return null
     return rect
   }
-
-  function menuPosition(rect: DOMRect): { x: number; y: number } {
-    const estH = 44
-    const y = rect.bottom + 8 + estH > window.innerHeight ? Math.max(8, rect.top - estH - 8) : rect.bottom + 8
-    return { x: Math.max(8, rect.left), y }
-  }
-
-  /**
-   * 面板定位：**上沿固定吸附在选区下方 8px**，绝不跳到选区上方。
-   * 下方空间不足时不翻转面板，而是压缩 maxHeight 让内容在面板内部滚动。
-   *
-   * 工程补充：选区贴住视口底部时，y 会被 clamp 到"至少露出
-   * MIN_VISIBLE 高度"的位置——配合滚动跟随，滚动后面板即完整可见。
-   */
-  function panelPosition(rect: DOMRect): PanelPosition {
-    const GAP = 8
-    const MARGIN = 8
-    const MIN_VISIBLE = 160 // 面板最小可见高度（保证不出现"只露一条缝"）
-
-    const width = Math.min(PANEL_WIDTH, window.innerWidth - MARGIN * 2)
-    const x = Math.max(MARGIN, Math.min(rect.left, window.innerWidth - width - MARGIN))
-
-    let y = Math.max(MARGIN, rect.bottom + GAP)
-    y = Math.min(y, window.innerHeight - MIN_VISIBLE - MARGIN)
-
-    const maxHeight = Math.max(MIN_VISIBLE, window.innerHeight - y - MARGIN)
-
-    return { x, y, maxHeight }
-  }
-
-  /** 面板打开期间跟随滚动/缩放：滚动用 capture 捕获内部容器的滚动 */
-  useEffect(() => {
-    if (!panel) return
-
-    const reposition = () => {
-      const rect = getAnchorRect()
-      if (!rect) return
-      setPanelPos(panelPosition(rect))
-    }
-
-    window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
-
-    return () => {
-      window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
-    }
-  }, [panel])
 
   /* ---------- 任务执行（Port 生命周期） ---------- */
 
@@ -330,7 +278,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
   async function onToggleFavorite() {
     if (!panel || panel.status !== 'done' || !panel.text) return
-    const next = await toggleCollection({
+    const next = await toggleCollectionViaProxy({
       sourceText: sourceTextRef.current || panel.action.id,
       result: panel.text,
       actionId: panel.action.id,

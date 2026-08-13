@@ -1,0 +1,163 @@
+/* entrypoints/pdf/pdf.css —— PDF 阅读器样式 */
+
+.pdf-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #e5e7eb;
+}
+
+/* ---------------- 顶部工具栏 ---------------- */
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.pdf-title {
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 30vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.pdf-page-num,
+.pdf-zoom {
+  font-size: 12px;
+  color: #4b5563;
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-context-select select {
+  padding: 5px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  background: #fff;
+  color: #111827;
+}
+
+/* ---------------- 页面滚动区 ---------------- */
+
+.pdf-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+  position: relative;
+}
+
+.pdf-page-wrap {
+  display: flex;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.pdf-page {
+  position: relative;
+  background: #ffffff;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  align-self: flex-start;
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+/* ---------------- Text Layer（透明覆盖层，负责划词/选择） ---------------- */
+
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-align: initial;
+  transform-origin: 0 0;
+  caret-color: transparent;
+}
+
+.textLayer span,
+.textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+/* ---------------- 状态提示 ---------------- */
+
+.pdf-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #4b5563;
+  font-size: 14px;
+}
+
+.pdf-error {
+  margin: auto;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 28px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+.pdf-error h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.pdf-error p {
+  color: #ef4444;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.pdf-error ul {
+  text-align: left;
+  font-size: 12.5px;
+  color: #6b7280;
+  margin: 0 0 16px;
+  padding-left: 18px;
+  line-height: 1.8;
+}
+
+.pdf-error .btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.pdf-scan-hint {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 12px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b55;
+  color: #92400e;
+  font-size: 12.5px;
+  border-radius: 10px;
+  padding: 10px 14px;
+}

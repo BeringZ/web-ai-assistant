@@ -29,9 +29,11 @@ export function isValidCollectionEntry(e: unknown): e is CollectionEntry {
     typeof c.id === 'string' &&
     typeof c.sourceText === 'string' &&
     typeof c.result === 'string' &&
+    typeof c.actionId === 'string' &&
     typeof c.actionName === 'string' &&
     (c.source === 'dictionary' || c.source === 'ai') &&
-    typeof c.createdAt === 'number'
+    typeof c.createdAt === 'number' &&
+    Number.isFinite(c.createdAt)
   )
 }
 
@@ -70,13 +72,13 @@ export interface ImportResult<T> {
 
 /**
  * 解析词库导入内容。
- * @throws 非 JSON / 非词库文件格式时抛出可读错误
+ * @throws 非 JSON / 非词库文件格式 / 版本不匹配时抛出可读错误
  */
 export function parseDictionaryImport(raw: string): ImportResult<DictionaryEntry> {
   const data = parseJson(raw)
   const file = data as Partial<DictionaryExportFile>
-  if (file.type !== 'web-ai-dictionary' || !Array.isArray(file.words)) {
-    throw new Error('不是有效的词库导出文件（缺少 web-ai-dictionary 标记或 words 数组）')
+  if (file.type !== 'web-ai-dictionary' || file.version !== 1 || !Array.isArray(file.words)) {
+    throw new Error('不是有效的词库导出文件（type/版本不匹配或缺少 words 数组）')
   }
   const valid = file.words.filter(isValidDictionaryEntry)
   return { items: valid, skipped: file.words.length - valid.length }
@@ -86,8 +88,8 @@ export function parseDictionaryImport(raw: string): ImportResult<DictionaryEntry
 export function parseCollectionsImport(raw: string): ImportResult<CollectionEntry> {
   const data = parseJson(raw)
   const file = data as Partial<CollectionsExportFile>
-  if (file.type !== 'web-ai-collections' || !Array.isArray(file.items)) {
-    throw new Error('不是有效的收藏导出文件（缺少 web-ai-collections 标记或 items 数组）')
+  if (file.type !== 'web-ai-collections' || file.version !== 1 || !Array.isArray(file.items)) {
+    throw new Error('不是有效的收藏导出文件（type/版本不匹配或缺少 items 数组）')
   }
   const valid = file.items.filter(isValidCollectionEntry)
   return { items: valid, skipped: file.items.length - valid.length }

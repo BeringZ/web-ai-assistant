@@ -39,6 +39,8 @@ interface ResultPanelProps {
   /** 当前结果是否已收藏 */
   isFavorite: boolean
   onToggleFavorite: () => void
+  /** 是否显示收藏按钮（PDF 阅读器暂不支持收藏） */
+  showFavorite?: boolean
 }
 
 const ICON = {
@@ -50,7 +52,7 @@ const ICON = {
   heart: 'M12 21s-7.5-4.7-10-9.3C.6 8.6 2.7 5 6 5c2 0 3.4 1.1 4 2.2C10.6 6.1 12 5 14 5c3.3 0 5.4 3.6 4 6.7C19.5 16.3 12 21 12 21z',
 }
 
-export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAbort, onClose, isFavorite, onToggleFavorite }: ResultPanelProps) {
+export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAbort, onClose, isFavorite, onToggleFavorite, showFavorite = true }: ResultPanelProps) {
   const [question, setQuestion] = useState('')
   const [copied, setCopied] = useState(false)
   const [favPulse, setFavPulse] = useState(false)
@@ -169,28 +171,30 @@ export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAb
             )}
             {status === 'done' && text && (
               <>
-                <button
-                  type="button"
-                  className={`wa-btn wa-fav ${isFavorite ? 'active' : ''}`}
-                  onClick={() => {
-                    onToggleFavorite()
-                    setFavPulse(true)
-                    setTimeout(() => setFavPulse(false), 400)
-                  }}
-                >
-                  <svg
-                    className={favPulse ? 'wa-fav-pulse' : ''}
-                    viewBox="0 0 24 24"
-                    fill={isFavorite ? 'currentColor' : 'none'}
-                    stroke="currentColor"
-                    strokeWidth={1.8}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                {showFavorite && (
+                  <button
+                    type="button"
+                    className={`wa-btn wa-fav ${isFavorite ? 'active' : ''}`}
+                    onClick={() => {
+                      onToggleFavorite()
+                      setFavPulse(true)
+                      setTimeout(() => setFavPulse(false), 400)
+                    }}
                   >
-                    <path d={ICON.heart} />
-                  </svg>
-                  {isFavorite ? '已收藏' : '收藏'}
-                </button>
+                    <svg
+                      className={favPulse ? 'wa-fav-pulse' : ''}
+                      viewBox="0 0 24 24"
+                      fill={isFavorite ? 'currentColor' : 'none'}
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d={ICON.heart} />
+                    </svg>
+                    {isFavorite ? '已收藏' : '收藏'}
+                  </button>
+                )}
                 <button type="button" className="wa-btn" onClick={copy}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
                     <path d={copied ? ICON.check : ICON.copy} />

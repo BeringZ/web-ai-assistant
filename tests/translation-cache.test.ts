@@ -5,21 +5,39 @@
  * 读写 chrome.storage 的封装不在此测（依赖浏览器 API）。
  */
 import { describe, expect, it } from 'vitest'
-import { CACHE_LIMIT, cacheKeyFor, trimCache, type TranslationCache } from '@/core/translationCache'
+import { CACHE_LIMIT, cacheKeyFor, hashString, trimCache, type TranslationCache } from '@/core/translationCache'
 
-describe('cacheKeyFor（缓存 key 归一化）', () => {
+const PROMPT = '请将下面的内容翻译成简体中文。'
+
+describe('cacheKeyFor（缓存 key 归一化 + Prompt 指纹）', () => {
   it('单词统一小写（Hello 与 hello 是同一个词）', () => {
-    expect(cacheKeyFor('translate', 'Hello')).toBe('2|translate|hello')
-    expect(cacheKeyFor('translate', 'HELLO')).toBe('2|translate|hello')
+    const k1 = cacheKeyFor('translate', PROMPT, 'Hello')
+    const k2 = cacheKeyFor('translate', PROMPT, 'HELLO')
+    expect(k1).toBe(k2)
+    expect(k1).toBe(`translate|${hashString(PROMPT)}|hello`)
   })
 
   it('语段保留原文与大小写', () => {
-    expect(cacheKeyFor('translate', 'Hello world')).toBe('2|translate|Hello world')
-    expect(cacheKeyFor('translate', 'HELLO WORLD')).toBe('2|translate|HELLO WORLD')
+    const k1 = cacheKeyFor('translate', PROMPT, 'Hello world')
+    const k2 = cacheKeyFor('translate', PROMPT, 'HELLO WORLD')
+    expect(k1).not.toBe(k2)
+  })
+
+  it('Prompt 不同 → key 不同（修改 Prompt 后旧缓存失效）', () => {
+    const a = cacheKeyFor('translate', '请翻译成中文', 'hello')
+    const b = cacheKeyFor('translate', '请翻译成日语', 'hello')
+    expect(a).not.toBe(b)
   })
 
   it('trim 掉首尾空白', () => {
-    expect(cacheKeyFor('translate', '  hello  ')).toBe('2|translate|hello')
+    expect(cacheKeyFor('translate', PROMPT, '  hello  ')).toBe(cacheKeyFor('translate', PROMPT, 'hello'))
+  })
+})
+
+describe('hashString（FNV-1a 指纹）', () => {
+  it('相同输入相同输出，不同输入不同输出', () => {
+    expect(hashString('abc')).toBe(hashString('abc'))
+    expect(hashString('abc')).not.toBe(hashString('abd'))
   })
 })
 

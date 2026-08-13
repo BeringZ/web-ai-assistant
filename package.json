@@ -2,7 +2,7 @@
   "name": "web-translate",
   "description": "网页翻译助手：选中即问，翻译/解释/总结/改写，接入自有 OpenAI-compatible API",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -12,9 +12,13 @@
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test e2e",
+    "icons": "node scripts/generate-icons.mjs",
+    "demo": "node scripts/generate-demo-gif.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

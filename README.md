@@ -1,7 +1,9 @@
-# 网页 AI 助手（Web AI Assistant）
+# web-translate
+
+> 网页划词 AI 翻译与理解工具。
 
 > 选中网页文字，直接调用**你自己的 AI API** 翻译、解释、总结、改写、提问。
-> 无需复制粘贴、无需切换 ChatGPT 页面。BYOK（Bring Your Own Key），密钥只留在你的浏览器里。
+> 无需复制粘贴、无需切换页面。BYOK（Bring Your Own Key）。
 
 > Demo GIF 在 headed Chrome 下由 `node scripts/generate-demo-gif.mjs` 生成（headless 模式加载扩展受限于浏览器）。此处展示产品形态，完整交互需本地装上扩展体验。
 
@@ -15,6 +17,7 @@
 - ✓ **收藏**：结果面板一键收藏，AI 输出积累成你自己的知识库
 - ✓ **本地词库**：内置 140+ 常见词，AI 翻译过的生词自动加入，下次秒出
 - ✓ **导入导出**：词库与收藏可备份 / 迁移到其他设备
+- ✓ **PDF 阅读模式**：论文、资料直接在扩展里阅读并划词提问（自带阅读器）
 
 ---
 
@@ -22,7 +25,7 @@
 
 朋友不需要 Node / npm / 任何开发工具。三个步骤：
 
-1. 打开 [Releases](https://github.com/BeringZ/web-ai-assistant/releases) 下载最新的 `web-ai-assistant-chrome-v0.3.0.zip`
+1. 打开 [Releases](https://github.com/BeringZ/web-ai-assistant/releases) 下载最新的 `web-translate-chrome-v0.3.1.zip`
 2. 解压到任意文件夹
 3. 打开 Chrome → 地址栏输入 `chrome://extensions`
    - 打开右上角「开发者模式」
@@ -72,6 +75,28 @@
 - 选中**语段**走 AI 翻译
 - 翻译过的同一内容**会自动缓存**，下次选中秒出（"重试"按钮强制刷新）
 
+
+---
+
+## PDF 阅读
+
+Chrome 自带的 PDF 查看器无法注入扩展，因此 web-translate 提供自己的 PDF 阅读模式（基于 PDF.js，不依赖浏览器内置查看器）。
+
+使用：
+
+1. 浏览器打开一个 PDF（如论文 / 资料）
+2. 点击工具栏的 web-translate 图标
+3. 点击「用 web-translate 打开」
+4. 在 PDF 中**划词**，选择 翻译 / 解释 / 总结 / 改写 / 提问
+
+阅读器支持：上一页/下一页（← →）、缩放（Ctrl + / -）、适应宽度、查看原 PDF。
+
+上下文级别：工具栏可选「仅选中 / 当前页 / 前后页」——前后页会作为上下文发给 AI（自动截断，避免 Token 暴涨），自定义 Action 里也可用 `{{page}}` / `{{pageCount}}` / `{{source}}` 变量。
+
+> **当前支持**：带文字层的 PDF（绝大多数电子版论文/文档）
+>
+> **暂不支持**：扫描图片型 PDF 的 OCR（页面会明确提示，而不是静默失败）
+
 ---
 
 ## 自定义 Action
@@ -108,7 +133,7 @@
 
 - 存在你**本机浏览器**的扩展存储（`chrome.storage.local`）
 - **不会**进入网页 Content Script（从 API 层面就无法进入）
-- **不会**离开你的电脑，只发给你填写的 API Base URL
+- **不会**发送给项目作者 —— 本项目没有自己的服务器。选中的内容只会发送到你配置的 AI API（该请求本身会携带 API Key 用于鉴权，这是 API 调用所必需的）
 - v0.3 起，密钥与其它设置在存储层就是分开的两个 key（`provider_settings` / `public_settings`），降低被误读的可能性
 
 ---
@@ -116,7 +141,7 @@
 ## 常见问题
 
 **Q：和直接用 ChatGPT 比有什么区别？**
-A：不用切换页面，不用复制粘贴，不用"对话 5 轮才理解我的意思"——选中即用，且数据不经过第三方。
+A：不用切换页面，不用复制粘贴——选中即用。数据只在你和自配的 AI API 之间流动，不经过任何第三方中转。
 
 **Q：支持哪些语言？**
 A：翻译取决于你用的 AI 模型。任何语言都能"解释 / 总结 / 改写"。本地词库目前是英文→中文。

@@ -10,6 +10,11 @@
  */
 import type { Action } from '@/core/types'
 
+/** 按 id 查找内置 Action（用于判断用户是否改过某个内置 Prompt） */
+export function findBuiltinAction(id: string): Action | undefined {
+  return BUILTIN_ACTIONS.find((a) => a.id === id)
+}
+
 export const BUILTIN_ACTIONS: Action[] = [
   {
     id: 'translate',
@@ -84,8 +89,3 @@ export const BUILTIN_ACTIONS: Action[] = [
     ].join('\n'),
   },
 ]
-
-/** 根据 id 查内置 action（找不到返回 undefined） */
-export function findBuiltinAction(id: string): Action | undefined {
-  return BUILTIN_ACTIONS.find((a) => a.id === id)
-}

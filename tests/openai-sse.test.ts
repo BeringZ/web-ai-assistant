@@ -93,6 +93,40 @@ describe('OpenAICompatibleProvider.chat', () => {
     expect(parts.join('')).toBe('碎片拼接')
   })
 
+  it('CRLF（\\r\\n\\r\\n）分隔的 SSE 正常解析', async () => {
+    const crlf = [
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: 'CRLF' } }] }) + '\r\n\r\n',
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: '兼容' } }] }) + '\r\n\r\n',
+      'data: [DONE]\r\n\r\n',
+    ].join('')
+    stubFetch(new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(crlf))
+        c.close()
+      },
+    }))
+    const provider = new OpenAICompatibleProvider(baseConfig)
+    const parts: string[] = []
+    for await (const chunk of await provider.chat(req)) parts.push(chunk)
+    expect(parts.join('')).toBe('CRLF兼容')
+  })
+
+  it('结尾事件无空行分隔（残余 buffer）也能产出', async () => {
+    const raw =
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: '残余' } }] }) + '\n\n' +
+      'data: ' + JSON.stringify({ choices: [{ delta: { content: 'buffer' } }] })
+    stubFetch(new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(raw))
+        c.close()
+      },
+    }))
+    const provider = new OpenAICompatibleProvider(baseConfig)
+    const parts: string[] = []
+    for await (const chunk of await provider.chat(req)) parts.push(chunk)
+    expect(parts.join('')).toBe('残余buffer')
+  })
+
   it('流中返回 error 字段时抛出 ProviderError', async () => {
     const stream = sseStream([jsonEvent({ error: { message: 'rate limited' } })])
     stubFetch(stream)

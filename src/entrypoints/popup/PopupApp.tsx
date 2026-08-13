@@ -14,14 +14,28 @@ import { browser } from 'wxt/browser'
 import type { ContextLevel, PanelCloseMode, ProviderSettings, PublicSettings } from '@/core/types'
 import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderSettings, defaultPublicSettings } from '@/core/types'
 import { getProviderSettings, getPublicSettings, saveProviderSettings, savePublicSettings } from '@/core/storage'
+import { ensureOriginAccess } from '@/core/permissions'
 import type { BackgroundToOptions } from '@/core/messaging'
 
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
+
+/** URL 是否以 .pdf 结尾（Chrome 内置 PDF 查看器中 Tab URL 保留原始 PDF 地址） */
+function looksLikePdf(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.pdf')
+  } catch {
+    return false
+  }
+}
 
 export function PopupApp() {
   const [loaded, setLoaded] = useState(false)
   const [provider, setProvider] = useState<ProviderSettings>(defaultProviderSettings())
   const [publicSettings, setPublicSettings] = useState<PublicSettings>(defaultPublicSettings())
+  /** 已保存的 Provider 是否已配置（与"编辑中的 provider"严格区分，避免输入即跳页） */
+  const [hasSavedProvider, setHasSavedProvider] = useState(false)
+  /** 当前标签页若是 PDF，记录其 URL（用于"用 web-translate 打开"） */
+  const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null)
 
   const [step, setStep] = useState<1 | 2>(1)
   const [testing, setTesting] = useState(false)
@@ -31,12 +45,30 @@ export function PopupApp() {
     Promise.all([getProviderSettings(), getPublicSettings()]).then(([p, s]) => {
       setProvider(p)
       setPublicSettings(s)
+      setHasSavedProvider(p.apiKey.trim().length > 0)
       setLoaded(true)
     })
+    // 检测当前标签页是否为 PDF（activeTab 权限：用户点击扩展图标时自动授予）
+    browser.tabs
+      ?.query({ active: true, currentWindow: true })
+      .then(([tab]) => {
+        if (tab?.url && looksLikePdf(tab.url)) setCurrentPdfUrl(tab.url)
+      })
+      .catch(() => {})
   }, [])
 
-  /** 是否已配置（API Key 非空） */
-  const configured = provider.apiKey.trim().length > 0
+  /** 用 web-translate 打开 PDF（新标签页，不覆盖原 PDF） */
+  const openPdfViewer = async () => {
+    if (!currentPdfUrl) return
+    const granted = await ensureOriginAccess(currentPdfUrl)
+    if (!granted) {
+      setError('未获得该 PDF 域名的访问权限。请允许后重试。')
+      return
+    }
+    const viewerUrl = `${browser.runtime.getURL('/pdf.html')}?url=${encodeURIComponent(currentPdfUrl)}`
+    await browser.tabs.create({ url: viewerUrl })
+    window.close()
+  }
 
   const patchProvider = (patch: Partial<ProviderSettings>) => setProvider((p) => ({ ...p, ...patch }))
 
@@ -45,6 +77,12 @@ export function PopupApp() {
     setTesting(true)
     setError(null)
     try {
+      // 先请求该 API 域名的访问权限（可选权限，用户会看到具体域名）
+      const granted = await ensureOriginAccess(provider.baseUrl)
+      if (!granted) {
+        setError('未获得该 API 域名的访问权限，无法连接。请允许后重试。')
+        return
+      }
       const res = (await browser.runtime.sendMessage({ type: 'test-provider', config: provider })) as TestResult
       if (!res.ok) {
         setError(res.message)
@@ -52,6 +90,7 @@ export function PopupApp() {
       }
       await saveProviderSettings(provider)
       await savePublicSettings(publicSettings)
+      setHasSavedProvider(true)
       setStep(2)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -78,11 +117,24 @@ export function PopupApp() {
       </header>
 
       <div className="popup-body">
-        {!configured ? (
-          /* ---------------- 首次配置（Setup） ---------------- */
-          step === 1 ? (
-            <>
-              <p className="popup-step">1 / 2 · 配置你的 AI</p>
+        {step === 2 ? (
+          /* ---------------- Setup 成功 ---------------- */
+          <>
+            <p className="popup-step">2 / 2 · 配置成功 🎉</p>
+            <p className="popup-hint">
+              现在：
+              <br />1. 打开任意网页
+              <br />2. 选中文字
+              <br />3. 点击「翻译」或「解释」
+            </p>
+            <button type="button" className="btn primary popup-cta" onClick={() => window.close()}>
+              开始使用
+            </button>
+          </>
+        ) : !hasSavedProvider ? (
+          /* ---------------- 首次配置（Setup step 1） ---------------- */
+          <>
+            <p className="popup-step">1 / 2 · 配置你的 AI</p>
               <label className="field">
                 <span>Base URL</span>
                 <input
@@ -124,26 +176,23 @@ export function PopupApp() {
               </button>
               <p className="popup-hint">支持 OpenAI-compatible API（DeepSeek / Moonshot / GLM / 本地 vLLM…）</p>
             </>
-          ) : (
-            /* ---- Setup 成功 ---------------- */
-            <>
-              <p className="popup-step">2 / 2 · 配置成功 🎉</p>
-              <p className="popup-hint">
-                现在：
-                <br />1. 打开任意网页
-                <br />2. 选中文字
-                <br />3. 点击「翻译」或「解释」
-              </p>
-              <button type="button" className="btn primary popup-cta" onClick={() => window.close()}>
-                开始使用
-              </button>
-            </>
-          )
         ) : (
           /* ---------------- 已配置 · 状态概览 ---------------- */
           <>
+            {currentPdfUrl && (
+              <div className="popup-pdf-banner">
+                <div className="popup-pdf-info">
+                  <span className="popup-pdf-badge">PDF</span>
+                  检测到 PDF 文件
+                </div>
+                <button type="button" className="btn primary popup-pdf-open" onClick={openPdfViewer}>
+                  用 web-translate 打开
+                </button>
+              </div>
+            )}
+
             <div className="popup-status">
-              <span className="dot on" /> AI 已连接
+              <span className="dot on" /> AI 已配置
               <span className="popup-model">{provider.model}</span>
             </div>
 

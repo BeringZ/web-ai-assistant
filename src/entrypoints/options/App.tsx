@@ -26,6 +26,7 @@ import {
   savePublicSettings,
   setUserDictionaryWords,
 } from '@/core/storage'
+import { ensureOriginAccess } from '@/core/permissions'
 import { collectActions, createCustomAction } from '@/actions/manager'
 import { BUILTIN_WORDS } from '@/dictionary'
 import {
@@ -98,6 +99,12 @@ export function SettingsPanel() {
     setTesting(true)
     setTestResult(null)
     try {
+      // 先请求该 API 域名的访问权限（可选权限）
+      const granted = await ensureOriginAccess(provider.baseUrl)
+      if (!granted) {
+        setTestResult({ type: 'test-result', ok: false, message: '未获得该 API 域名的访问权限，无法连接。请允许后重试。' })
+        return
+      }
       const res = (await browser.runtime.sendMessage({ type: 'test-provider', config: provider })) as TestResult
       setTestResult(res)
     } catch (err) {
