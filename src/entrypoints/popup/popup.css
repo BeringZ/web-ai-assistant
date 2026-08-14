@@ -185,3 +185,32 @@ body {
   font-size: 12px;
   flex-shrink: 0;
 }
+/* ---------------- Provider 健康状态 ---------------- */
+
+.popup-health {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.popup-health.ok {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.popup-health.dim {
+  color: var(--text-dim);
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.popup-health.warn {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #f59e0b55;
+}

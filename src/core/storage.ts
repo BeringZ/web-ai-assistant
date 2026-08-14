@@ -85,6 +85,22 @@ export async function saveProviderSettings(settings: ProviderSettings): Promise<
   await browser.storage.local.set({ [PROVIDER_KEY]: normalizeProviderSettings(settings) })
 }
 
+/* ---------------- Provider 最近测试记录（Popup 健康状态用） ---------------- */
+
+const LAST_TEST_KEY = 'provider_last_test'
+
+export async function getProviderLastTest(): Promise<import('@/providers/health').LastTestRecord | null> {
+  const raw = await browser.storage.local.get(LAST_TEST_KEY)
+  const t = raw[LAST_TEST_KEY] as import('@/providers/health').LastTestRecord | undefined
+  if (!t || typeof t !== 'object') return null
+  if (typeof t.ok !== 'boolean' || typeof t.at !== 'number' || typeof t.endpoint !== 'string' || typeof t.model !== 'string') return null
+  return t
+}
+
+export async function saveProviderLastTest(record: import('@/providers/health').LastTestRecord): Promise<void> {
+  await browser.storage.local.set({ [LAST_TEST_KEY]: record })
+}
+
 /* ---------------- 结构校验 + 兜底 ---------------- */
 
 function normalizePublicSettings(raw: Partial<PublicSettings> | undefined): PublicSettings {

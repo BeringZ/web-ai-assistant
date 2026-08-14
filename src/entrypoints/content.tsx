@@ -16,8 +16,9 @@ import { browser, type Browser } from 'wxt/browser'
 import { createRoot, type Root } from 'react-dom/client'
 import { useEffect, useRef, useState } from 'react'
 import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, PublicSettings, RunRequest, SelectionPayload } from '@/core/types'
-import { PORT_NAME, type BackgroundToContent, type CollectionEntryInput } from '@/core/messaging'
+import type { CollectionEntryInput } from '@/core/messaging'
 import { collectActions } from '@/actions/manager'
+import { createRunClient, type RunClient } from '@/core/runClient'
 import { buildSelectionPayload, hasUsableSelection } from '@/selection/context'
 import { FloatingMenu } from '@/components/FloatingMenu'
 import { ResultPanel, type PanelState } from '@/components/ResultPanel'
@@ -78,9 +79,9 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   const [panelPos, setPanelPos] = useState<PanelPosition | null>(null)
   const [collections, setCollections] = useState<CollectionEntry[]>([])
 
-  // 不可变/跨渲染数据放 ref：快照的 Range、Port、最后一次请求（重试用）
+  // 不可变/跨渲染数据放 ref：快照的 Range、统一 RunClient、最后一次请求（重试用）
   const rangeRef = useRef<Range | null>(null)
-  const portRef = useRef<Browser.runtime.Port | null>(null)
+  const runClientRef = useRef<RunClient | null>(null)
   const requestRef = useRef<RunRequest | null>(null)
   /** 当前任务的原文（收藏唯一性判断用） */
   const sourceTextRef = useRef<string>('')
@@ -98,6 +99,19 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   useEffect(() => {
     reloadContentContext()
     getCollectionsViaProxy().then(setCollections)
+  }, [])
+
+  // 统一 RunClient：与 PDF 阅读器共用同一条执行链路（requestId 防串流 + 状态机）
+  useEffect(() => {
+    const client = createRunClient({
+      onChunk: (text) => setPanel((p) => (p ? { ...p, text: p.text + text } : p)),
+      onSource: (source) => setPanel((p) => (p ? { ...p, source } : p)),
+      onDone: () => setPanel((p) => (p ? { ...p, status: 'done' } : p)),
+      onError: (err) => setPanel((p) => (p ? { ...p, status: 'error', error: err } : p)),
+      // onDisconnect 由 runClient 统一发 WORKER_DISCONNECTED 错误（onError 处理）
+    })
+    runClientRef.current = client
+    return () => client.abort()
   }, [])
 
   /* ---------- 选区监听 ---------- */
@@ -204,39 +218,8 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
   function runRequest(request: RunRequest) {
     requestRef.current = request
-    abortPort() // 若有旧连接先断开
-
-    debug('connecting background')
-    const port = browser.runtime.connect({ name: PORT_NAME })
-    portRef.current = port
-
-    port.onMessage.addListener((msg: BackgroundToContent) => {
-      if (msg.type === 'chunk') {
-        setPanel((p) => (p ? { ...p, text: p.text + msg.text } : p))
-      } else if (msg.type === 'source') {
-        setPanel((p) => (p ? { ...p, source: msg.source } : p))
-      } else if (msg.type === 'done') {
-        setPanel((p) => (p ? { ...p, status: 'done' } : p))
-      } else if (msg.type === 'error') {
-        setPanel((p) => (p ? { ...p, status: 'error', error: msg.message } : p))
-      }
-    })
-
-    port.onDisconnect.addListener(() => {
-      portRef.current = null
-      // Service Worker 被唤醒延迟/崩溃导致断开：标记错误，让用户重试
-      setPanel((p) => (p && p.status === 'streaming' ? { ...p, status: 'error', error: '连接已中断，请重试' } : p))
-    })
-
-    port.postMessage({ type: 'run', request })
-  }
-
-  function abortPort() {
-    if (portRef.current) {
-      portRef.current.postMessage({ type: 'abort' })
-      portRef.current.disconnect()
-      portRef.current = null
-    }
+    debug('run via runClient', request.actionId)
+    runClientRef.current?.run(request)
   }
 
   /* ---------- 面板交互回调 ---------- */
@@ -255,12 +238,12 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   }
 
   function onAbort() {
-    abortPort()
+    runClientRef.current?.abort()
     setPanel((p) => (p ? { ...p, status: 'error', error: '已停止生成' } : p))
   }
 
   function onClose() {
-    abortPort()
+    runClientRef.current?.abort()
     rangeRef.current = null
     requestRef.current = null
     sourceTextRef.current = ''

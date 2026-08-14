@@ -156,11 +156,8 @@ export function PdfApp() {
       onChunk: (text) => setPanel((p) => (p ? { ...p, text: p.text + text } : p)),
       onSource: (source) => setPanel((p) => (p ? { ...p, source } : p)),
       onDone: () => setPanel((p) => (p ? { ...p, status: 'done' } : p)),
-      onError: (message) => setPanel((p) => (p ? { ...p, status: 'error', error: message } : p)),
-      onDisconnect: () =>
-        setPanel((p) =>
-          p && p.status === 'streaming' ? { ...p, status: 'error', error: '连接已中断，请重试' } : p,
-        ),
+      onError: (err) => setPanel((p) => (p ? { ...p, status: 'error', error: err } : p)),
+      // onDisconnect 由 runClient 统一发 WORKER_DISCONNECTED 错误（onError 处理）
     })
     runClientRef.current = client
     return () => client.abort()

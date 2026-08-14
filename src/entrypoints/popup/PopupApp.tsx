@@ -13,8 +13,9 @@ import { useEffect, useState } from 'react'
 import { browser } from 'wxt/browser'
 import type { ContextLevel, PanelCloseMode, ProviderSettings, PublicSettings } from '@/core/types'
 import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderSettings, defaultPublicSettings } from '@/core/types'
-import { getProviderSettings, getPublicSettings, saveProviderSettings, savePublicSettings } from '@/core/storage'
-import { ensureOriginAccess } from '@/core/permissions'
+import { getProviderSettings, getPublicSettings, saveProviderSettings, savePublicSettings, getProviderLastTest } from '@/core/storage'
+import { ensureOriginAccess, originOf } from '@/core/permissions'
+import { computeProviderHealth, type ProviderHealth } from '@/providers/health'
 import type { BackgroundToOptions } from '@/core/messaging'
 
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
@@ -40,6 +41,24 @@ export function PopupApp() {
   const [step, setStep] = useState<1 | 2>(1)
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Provider 健康状态（verified / permission-required / configured…） */
+  const [health, setHealth] = useState<ProviderHealth | null>(null)
+  const [healthTick, setHealthTick] = useState(0)
+
+  /** 重新计算健康状态（测试保存 / 重新授权 / provider 变化后调用） */
+  const refreshHealth = async (prov: ProviderSettings) => {
+    const last = await getProviderLastTest().catch(() => null)
+    let permissionOk = true
+    const origin = originOf(prov.baseUrl)
+    if (origin) {
+      try {
+        permissionOk = await browser.permissions.contains({ origins: [`${origin}/*`] })
+      } catch {
+        /* 忽略 */
+      }
+    }
+    setHealth(computeProviderHealth(prov, last, permissionOk))
+  }
 
   useEffect(() => {
     Promise.all([getProviderSettings(), getPublicSettings()]).then(([p, s]) => {
@@ -47,6 +66,7 @@ export function PopupApp() {
       setPublicSettings(s)
       setHasSavedProvider(p.apiKey.trim().length > 0)
       setLoaded(true)
+      if (p.apiKey.trim()) refreshHealth(p)
     })
     // 检测当前标签页是否为 PDF（activeTab 权限：用户点击扩展图标时自动授予）
     browser.tabs
@@ -92,10 +112,22 @@ export function PopupApp() {
       await savePublicSettings(publicSettings)
       setHasSavedProvider(true)
       setStep(2)
+      await refreshHealth(provider)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setTesting(false)
+    }
+  }
+
+  /** 重新授权当前 API 域名并刷新健康状态 */
+  const reAuthorize = async () => {
+    const granted = await ensureOriginAccess(provider.baseUrl)
+    if (granted) {
+      setError(null)
+      await refreshHealth(provider)
+    } else {
+      setError('未获得该 API 域名的访问权限。')
     }
   }
 
@@ -195,6 +227,21 @@ export function PopupApp() {
               <span className="dot on" /> AI 已配置
               <span className="popup-model">{provider.model}</span>
             </div>
+
+            {health?.status === 'verified' && (
+              <p className="popup-health ok">✓ 最近验证成功</p>
+            )}
+            {health?.status === 'configured' && (
+              <p className="popup-health dim">API 已配置，尚未验证</p>
+            )}
+            {health?.status === 'permission-required' && (
+              <div className="popup-health warn">
+                <span>已配置，但当前 API 域名未授权</span>
+                <button type="button" className="btn small" onClick={reAuthorize}>
+                  重新授权
+                </button>
+              </div>
+            )}
 
             <label className="field">
               <span>默认上下文</span>

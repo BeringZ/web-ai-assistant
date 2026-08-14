@@ -19,7 +19,6 @@ import {
   type BackgroundToContent,
   type BackgroundToOptions,
 } from '@/core/messaging'
-import { getProviderSettings, getPublicSettings, getCollections, getContentContext, getUserDictionaryWords, setUserDictionaryWords, toggleCollection } from '@/core/storage'
 import { findAction } from '@/actions/manager'
 import { findBuiltinAction } from '@/actions/builtin'
 import { renderTemplate } from '@/actions/template'
@@ -27,6 +26,9 @@ import { createProvider } from '@/providers'
 import { BUILTIN_WORDS, WORD_FORMAT_HINT, formatEntry, isSingleWord, lookupInWords, parseAiWordEntry } from '@/dictionary'
 import { cacheKeyFor, getCachedTranslation, setCachedTranslation } from '@/core/translationCache'
 import { mergeDictionary } from '@/core/importExport'
+import { preflightProvider, preflightRun } from '@/providers/preflight'
+import { makeRunError, mapRunError, isAutoRetryable } from '@/core/runErrors'
+import { getProviderSettings, getPublicSettings, getCollections, getContentContext, getUserDictionaryWords, setUserDictionaryWords, toggleCollection, saveProviderLastTest } from '@/core/storage'
 import { debug } from '@/core/debug'
 
 
@@ -60,10 +62,10 @@ export default defineBackground(() => {
       }
       if (msg.type !== 'run') return // storage 代理消息走 sendMessage 通道，不经过 Port
 
-      handleRun(port, msg.request, controller.signal).catch((err) => {
+      handleRun(port, msg.requestId, msg.request, controller.signal).catch((err) => {
         // AbortError 是用户主动取消，不算错误
         if (err && err.name !== 'AbortError') {
-          safePost(port, { type: 'error', message: friendlyError(err) })
+          safePost(port, { type: 'error', requestId: msg.requestId, error: mapRunError(err) })
         }
       })
     })
@@ -103,14 +105,22 @@ export default defineBackground(() => {
 
 async function handleRun(
   port: Browser.runtime.Port,
+  requestId: string,
   request: RunRequest,
   signal: AbortSignal,
 ): Promise<void> {
   const [publicSettings, providerSettings] = await Promise.all([getPublicSettings(), getProviderSettings()])
 
+  // ── Preflight：配置完整性 + host 权限（只查本地条件，不调用 API）──
+  const preflight = await preflightRun(providerSettings)
+  if (!preflight.ok) {
+    safePost(port, { type: 'error', requestId, error: preflight.error! })
+    return
+  }
+
   const action = findAction(publicSettings.actions, request.actionId, publicSettings.actionOverrides)
   if (!action) {
-    safePost(port, { type: 'error', message: `找不到操作：${request.actionId}` })
+    safePost(port, { type: 'error', requestId, error: makeRunError('UNKNOWN', `找不到操作：${request.actionId}`) })
     return
   }
   debug('run', request.actionId)
@@ -129,9 +139,9 @@ async function handleRun(
       const userWords = await getUserDictionaryWords()
       const hit = lookupInWords(userWords, selection) ?? lookupInWords(BUILTIN_WORDS, selection)
       if (hit) {
-        safePost(port, { type: 'source', source: 'dictionary' })
-        safePost(port, { type: 'chunk', text: formatEntry(hit) })
-        safePost(port, { type: 'done' })
+        safePost(port, { type: 'source', requestId, source: 'dictionary' })
+        safePost(port, { type: 'chunk', requestId, text: formatEntry(hit) })
+        safePost(port, { type: 'done', requestId })
         return
       }
     }
@@ -143,15 +153,15 @@ async function handleRun(
       const cached = await getCachedTranslation(cacheKey)
       if (cached) {
         debug('translation cache hit', cacheKey)
-        safePost(port, { type: 'source', source: 'ai' })
-        safePost(port, { type: 'chunk', text: cached })
-        safePost(port, { type: 'done' })
+        safePost(port, { type: 'source', requestId, source: 'ai' })
+        safePost(port, { type: 'chunk', requestId, text: cached })
+        safePost(port, { type: 'done', requestId })
         return
       }
     }
 
     // 3) 调 AI：单词走词典化请求，语段走翻译模板；成功后写入缓存
-    safePost(port, { type: 'source', source: 'ai' })
+    safePost(port, { type: 'source', requestId, source: 'ai' })
     const userMessage = isSingleWord(selection)
       ? { role: 'user' as const, content: `${WORD_FORMAT_HINT}\n\n单词：${selection}` }
       : {
@@ -167,7 +177,7 @@ async function handleRun(
             pageCount: request.payload.pdf ? String(request.payload.pdf.pageCount) : '',
           }),
         }
-    const result = await streamToPort(port, providerSettings, userMessage, signal)
+    const result = await runWithRetry(port, requestId, providerSettings, userMessage, signal)
     if (result.trim()) {
       await setCachedTranslation(cacheKey, result)
       debug('translation cached', cacheKey)
@@ -181,12 +191,13 @@ async function handleRun(
         }
       }
     }
-    safePost(port, { type: 'done' })
+    markVerified(providerSettings)
+    safePost(port, { type: 'done', requestId })
     return
   }
 
   // ── 常规路径：Action 模板渲染 → 交给 Provider 流式生成 ──
-  safePost(port, { type: 'source', source: 'ai' })
+  safePost(port, { type: 'source', requestId, source: 'ai' })
   const prompt = renderTemplate(action.prompt, {
     selection: request.payload.text,
     context: request.payload.context,
@@ -197,60 +208,100 @@ async function handleRun(
     page: request.payload.pdf ? String(request.payload.pdf.pageNumber) : '',
     pageCount: request.payload.pdf ? String(request.payload.pdf.pageCount) : '',
   })
-  await streamToPort(port, providerSettings, { role: 'user', content: prompt }, signal)
-  safePost(port, { type: 'done' })
+  await runWithRetry(port, requestId, providerSettings, { role: 'user', content: prompt }, signal)
+  markVerified(providerSettings)
+  safePost(port, { type: 'done', requestId })
 }
 
 /**
- * 用指定 user 消息发起一次流式对话并逐块转发到 port。
- * @returns 本次完整输出文本（供缓存写入；中断/出错时抛异常不返回）
+ * 发起流式对话并逐块转发到 port；网络错误/5xx 在"未产出任何内容前"自动重试 1 次。
+ * @returns 本次完整输出文本（中断/出错时抛异常不返回）
  */
-async function streamToPort(
+async function runWithRetry(
   port: Browser.runtime.Port,
+  requestId: string,
   providerSettings: ProviderSettings,
   userMessage: { role: 'user'; content: string },
   signal: AbortSignal,
 ): Promise<string> {
   const provider = createProvider(providerSettings)
-  const stream = await provider.chat({
+  const request = {
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system' as const, content: SYSTEM_PROMPT },
       userMessage,
     ],
     temperature: providerSettings.temperature,
     maxTokens: providerSettings.maxTokens,
     signal,
-  })
-  let collected = ''
-  for await (const chunk of stream) {
-    safePost(port, { type: 'chunk', text: chunk })
-    collected += chunk
   }
-  return collected
+
+  let attempt = 0
+  for (;;) {
+    let collected = ''
+    try {
+      const stream = await provider.chat(request)
+      for await (const chunk of stream) {
+        safePost(port, { type: 'chunk', requestId, text: chunk })
+        collected += chunk
+      }
+      return collected
+    } catch (err) {
+      const status = (err as { status?: number } | undefined)?.status
+      // 只重试"尚未产出任何内容"的失败（连接错误/5xx）——流中途失败不自动重试，避免重复输出
+      if (collected === '' && attempt === 0 && isAutoRetryable(err, status)) {
+        attempt++
+        debug('auto retry', (err as Error)?.message ?? status)
+        continue
+      }
+      throw err
+    }
+  }
 }
 
-/** Options 页"测试连接"：发一个最小请求验证配置可用 */
+/** 正式请求成功 → 记录"最近验证成功"（Popup 健康状态显示） */
+function markVerified(providerSettings: ProviderSettings): void {
+  void saveProviderLastTest({
+    ok: true,
+    at: Date.now(),
+    endpoint: providerSettings.baseUrl.trim(),
+    model: providerSettings.model.trim(),
+  }).catch(() => {})
+}
+
+/** Options/Popup 页"测试连接"：发一个最小请求验证配置可用 */
 async function testProvider(config: ProviderConfig): Promise<BackgroundToOptions> {
-  if (!config.baseUrl.trim() || !config.apiKey.trim()) {
-    return { type: 'test-result', ok: false, message: '请先填写 Base URL 和 API Key' }
+  const cfg = preflightProvider(config as ProviderSettings)
+  if (!cfg.ok) {
+    return { type: 'test-result', ok: false, message: cfg.error!.message }
   }
 
-  const provider = createProvider(config)
-  let received = ''
-  const stream = await provider.chat({
-    messages: [{ role: 'user', content: '请只回复两个字：成功' }],
-    temperature: 0,
-    maxTokens: 8,
-  })
-  for await (const chunk of stream) {
-    received += chunk
-    if (received.length > 60) break // 拿到足够信息就停
-  }
-  const preview = received.trim().replace(/\s+/g, ' ')
-  return {
-    type: 'test-result',
-    ok: true,
-    message: preview ? `连接成功，模型回复：${preview}` : '连接成功（模型无文本回复）',
+  try {
+    const provider = createProvider(config)
+    let received = ''
+    const stream = await provider.chat({
+      messages: [{ role: 'user', content: '请只回复两个字：成功' }],
+      temperature: 0,
+      maxTokens: 8,
+    })
+    for await (const chunk of stream) {
+      received += chunk
+      if (received.length > 60) break // 拿到足够信息就停
+    }
+    await saveProviderLastTest({
+      ok: true,
+      at: Date.now(),
+      endpoint: config.baseUrl.trim(),
+      model: config.model.trim(),
+    })
+    const preview = received.trim().replace(/\s+/g, ' ')
+    return {
+      type: 'test-result',
+      ok: true,
+      message: preview ? `连接成功，模型回复：${preview}` : '连接成功（模型无文本回复）',
+    }
+  } catch (err) {
+    const mapped = mapRunError(err)
+    return { type: 'test-result', ok: false, message: mapped.message }
   }
 }
 

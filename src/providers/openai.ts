@@ -23,6 +23,11 @@ interface DeltaChunk {
   error?: { message?: string }
 }
 
+/** 连接超时（fetch 建立连接） */
+const CONNECT_TIMEOUT_MS = 15_000
+/** 流式空闲超时：首 token / 两次 chunk 之间 */
+const STREAM_IDLE_TIMEOUT_MS = 30_000
+
 export class OpenAICompatibleProvider implements AIProvider {
   readonly id = 'openai-compatible'
 
@@ -41,15 +46,41 @@ export class OpenAICompatibleProvider implements AIProvider {
     // 调试日志：只输出请求 URL，绝不含 API Key
     debug('request', url)
 
-    const response = await fetch(url, init)
-    if (!response.ok) {
-      throw await this.parseHttpError(response)
+    // 超时生命周期：连接 15s；流式首 token / idle 30s（readStream 内重置）
+    const controller = new AbortController()
+    let connectTimer: ReturnType<typeof setTimeout> | undefined
+    if (!request.signal?.aborted) {
+      connectTimer = setTimeout(
+        () => controller.abort(new DOMException('连接超时', 'TimeoutError')),
+        CONNECT_TIMEOUT_MS,
+      )
     }
-    if (!response.body) {
-      throw new ProviderError('响应没有 body，无法流式读取')
+    // 用户已中断 → 内部 controller 同步中断（已 abort 的 signal 不会触发监听，需显式联动）
+    if (request.signal?.aborted) {
+      controller.abort()
     }
+    const onUserAbort = () => controller.abort()
+    request.signal?.addEventListener('abort', onUserAbort)
 
-    return this.readStream(response.body, request.signal)
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal })
+      clearTimeout(connectTimer)
+      if (!response.ok) {
+        throw await this.parseHttpError(response)
+      }
+      if (!response.body) {
+        throw new ProviderError('响应没有 body，无法流式读取')
+      }
+      return this.readStream(response.body, controller, request.signal)
+    } catch (err) {
+      clearTimeout(connectTimer)
+      if (err instanceof DOMException && err.name === 'TimeoutError') {
+        throw new ProviderError('连接超时（15 秒），请检查网络或 Base URL', 408)
+      }
+      throw err
+    } finally {
+      request.signal?.removeEventListener('abort', onUserAbort)
+    }
   }
 
   /* ---------------- 内部实现 ---------------- */
@@ -98,18 +129,34 @@ export class OpenAICompatibleProvider implements AIProvider {
     return new ProviderError(message, response.status)
   }
 
-  /** 把 ReadableStream 包装成异步迭代器，逐 delta 产出文本 */
+  /** 把 ReadableStream 包装成异步迭代器，逐 delta 产出文本（含空闲超时） */
   private async *readStream(
     body: ReadableStream<Uint8Array>,
-    signal: AbortSignal | undefined,
+    controller: AbortController,
+    userSignal: AbortSignal | undefined,
   ): AsyncIterableIterator<string> {
     const reader = body.getReader()
     const decoder = new TextDecoder('utf-8')
     let buffer = ''
 
+    // 空闲超时：首 token 或两次 chunk 之间超过 STREAM_IDLE_TIMEOUT_MS → 终止
+    let idleTimer: ReturnType<typeof setTimeout> | undefined
+    const resetIdle = () => {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(
+        () => controller.abort(new DOMException('响应超时', 'TimeoutError')),
+        STREAM_IDLE_TIMEOUT_MS,
+      )
+    }
+    resetIdle()
+
     try {
       while (true) {
-        if (signal?.aborted) return
+        // 用户取消 → 静默结束；空闲超时 → 抛 TimeoutError
+        if (controller.signal.aborted) {
+          if (userSignal?.aborted) return
+          throw new ProviderError('请求已中止（超时或连接中断）', 408)
+        }
         const { done, value } = await reader.read()
         if (done) break
 
@@ -136,7 +183,10 @@ export class OpenAICompatibleProvider implements AIProvider {
           }
 
           const delta = json.choices?.[0]?.delta?.content
-          if (delta) yield delta
+          if (delta) {
+            resetIdle() // 有产出 → 刷新空闲计时
+            yield delta
+          }
         }
       }
 
@@ -153,7 +203,18 @@ export class OpenAICompatibleProvider implements AIProvider {
           }
         }
       }
+    } catch (err) {
+      // 空闲超时 / 连接超时（用户主动 abort 除外）
+      if (
+        err instanceof DOMException &&
+        err.name === 'TimeoutError' &&
+        !userSignal?.aborted
+      ) {
+        throw new ProviderError('响应超时（30 秒无输出），请重试', 408)
+      }
+      throw err
     } finally {
+      clearTimeout(idleTimer)
       // 无论正常结束还是 abort，都要释放 reader，避免 Service Worker 挂死
       reader.releaseLock()
     }

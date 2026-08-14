@@ -369,3 +369,26 @@
   border-top: 1px solid var(--wa-border);
   margin: 10px 0;
 }
+
+/* ---------------- 结构化错误（InlineError） ---------------- */
+
+.wa-inline-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(229, 72, 77, 0.07);
+  border: 1px solid rgba(229, 72, 77, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.wa-inline-error-msg {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #c0392b;
+}
+
+.wa-inline-error .wa-btn {
+  align-self: flex-start;
+}

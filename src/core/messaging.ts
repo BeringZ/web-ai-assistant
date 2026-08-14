@@ -16,6 +16,7 @@
  *   { type: 'test-provider', config } → { type: 'test-result', ok, message }
  */
 import type { ProviderConfig, RunRequest } from './types'
+import type { RunError } from './runErrors'
 
 export const PORT_NAME = 'web-ai-assistant'
 
@@ -31,19 +32,19 @@ export interface CollectionEntryInput {
 }
 
 export type ContentToBackground =
-  | { type: 'run'; request: RunRequest }
-  | { type: 'abort' }
+  | { type: 'run'; requestId: string; request: RunRequest }
+  | { type: 'abort'; requestId?: string }
   // ---- Storage 代理：Content Script 不直接访问 chrome.storage ----
   | { type: 'get-content-context' }
   | { type: 'get-collections' }
   | { type: 'toggle-collection'; entry: CollectionEntryInput }
 
 export type BackgroundToContent =
-  | { type: 'chunk'; text: string }
-  | { type: 'done' }
-  | { type: 'error'; message: string }
+  | { type: 'chunk'; requestId: string; text: string }
+  | { type: 'done'; requestId: string }
+  | { type: 'error'; requestId: string; error: RunError }
   /** 标记本次结果来源（词库命中 vs AI 生成），供收藏记录 */
-  | { type: 'source'; source: 'dictionary' | 'ai' }
+  | { type: 'source'; requestId: string; source: 'dictionary' | 'ai' }
 
 export type OptionsToBackground =
   | { type: 'test-provider'; config: ProviderConfig }

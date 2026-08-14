@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Action } from '@/core/types'
 import { Markdown } from './markdown'
+import { InlineError } from './InlineError'
+import type { RunError } from '@/core/runErrors'
 
 export type PanelStatus = 'ask' | 'streaming' | 'done' | 'error'
 
@@ -19,7 +21,8 @@ export interface PanelState {
   status: PanelStatus
   /** 已累计的流式文本 */
   text: string
-  error: string | null
+  /** 结构化错误（带 code / 动作按钮），字符串兼容由调用方归一 */
+  error: RunError | string | null
   /** Ask 的输入问题（提交后保留，重试用） */
   question: string
   /** 结果来源：本地词库命中 还是 AI 生成（收藏时记录） */
@@ -137,7 +140,13 @@ export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAb
           </form>
         )}
 
-        {status === 'error' && error && <div className="wa-error">{error}</div>}
+        {status === 'error' && error && (
+          typeof error === 'string' ? (
+            <div className="wa-error">{error}</div>
+          ) : (
+            <InlineError error={error as RunError} onRetry={onRetry} />
+          )
+        )}
 
         {status !== 'ask' && text.length === 0 && status !== 'error' && (
           <div className="wa-empty">等待回复…</div>
