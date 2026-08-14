@@ -9,6 +9,8 @@ export interface PdfSelection {
   pageNumber: number
   /** 选区相对视口的矩形（供悬浮菜单 / 结果面板定位） */
   rect: DOMRect
+  /** 来源标记：与 Selection Core 的 source 对齐（PDF 是独立 SelectionSource） */
+  source: 'pdf'
 }
 
 /**
@@ -27,7 +29,7 @@ export function readPdfSelection(pageNumber: number): PdfSelection | null {
   const rect = range.getBoundingClientRect()
   if (rect.width === 0 && rect.height === 0) return null
 
-  return { text, pageNumber, rect }
+  return { text, pageNumber, rect, source: 'pdf' }
 }
 
 /** 清除页面选择 */

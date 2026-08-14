@@ -1,117 +1,159 @@
 /**
- * selection/context.ts —— 选区提取与上下文抓取（仅 Content Script 环境）
+ * selection/context.ts —— ContextBuilder
  *
- * ContextLevel → 上下文文本的映射：
- *   selection: 仅选中文本
- *   nearby:    选中文本所在的"块"（段落/列表项/代码块…）全部文本
- *   section:   最近的 文章/章节 容器文本
- *   article:   整页正文文本（截断上限保护）
+ * 职责解耦（Phase 2）：
+ *   SelectionSnapshot ──→ ContextSnapshot（段落语义）──→ SelectionPayload
  *
- * 关键细节：无论哪个级别，如果文本超过长度上限，
- * 截断时必须**以选中文本为中心**截窗，保证 {{selection}} 的内容
- * 在 {{context}} 里完整可见 —— 否则 AI 会因为 context 里找不到
- * 原文而困惑。
+ * 语义段落：before（前一段）/ current（选区所在段）/ after（后一段），
+ * 而不是只截"nearest block"一块 —— 对 AI 更稳定。
+ *
+ * 关键细节：截断必须以选中文本为中心（applyBudget），
+ * 保证 {{selection}} 在 {{context}} 里完整可见。
  */
 
 import type { ContextLevel, SelectionPayload } from '@/core/types'
+import type { ContextSnapshot, SelectionSnapshot } from './types'
+import {
+  BLOCK_TAGS,
+  elementText,
+  isReadableElement,
+  nearestBlockElement,
+  nearestSectionElement,
+} from './dom'
+import { normalizeText, snapshotFromSelection, snapshotRange } from './snapshot'
 
-/** 各级别的字符上限（省 Token 是第一原则） */
-const LIMITS: Record<ContextLevel, number> = {
+/** 各级别字符上限（省 Token 是第一原则） */
+export const CONTEXT_LIMITS: Record<ContextLevel, number> = {
   selection: 8_000,
   nearby: 2_000,
   section: 8_000,
   article: 16_000,
 }
 
-/** 视为"块"的标签：遇到这些元素就认为是一段独立内容 */
-const BLOCK_TAGS = new Set([
-  'P', 'LI', 'DD', 'DT', 'TD', 'TH', 'BLOCKQUOTE', 'PRE',
-  'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION',
-])
-
-/** 向上查找最近的块级元素（选区 anchor 通常是文本节点） */
-function nearestBlockElement(node: Node | null): HTMLElement | null {
-  if (!node) return null
-  let el: HTMLElement | null =
-    node instanceof Element ? (node as HTMLElement) : node.parentElement
-  while (el && !BLOCK_TAGS.has(el.tagName)) {
-    el = el.parentElement
-  }
-  return el
-}
-
 /**
- * 核心函数：在完整文本里截出"包含选中文本"的一段窗口。
- * - 文本不够长：原样返回
- * - 文本超长：以选中文本为中心向两侧扩展，超出部分用 … 提示
+ * 预算截断（纯函数）：以选中文本为中心向两侧扩展，超出用 … 提示。
+ * 文本不足 / 未找到选中文本时原样或退化为取前 maxChars。
  */
-function centerWindow(fullText: string, selectionText: string, maxLen: number): string {
-  if (fullText.length <= maxLen) return fullText
+export function applyBudget(parts: string[], selected: string, maxChars: number): string {
+  const full = parts.join('\n\n')
+  if (full.length <= maxChars) return full
 
-  const selIdx = fullText.indexOf(selectionText)
-  if (selIdx === -1) {
-    // 选中文本不在该容器里（极端情况）：退化为取前 maxLen 字符
-    return fullText.slice(0, maxLen) + '…'
-  }
+  const selIdx = full.indexOf(selected)
+  if (selIdx === -1) return full.slice(0, maxChars) + '…'
 
-  const head = Math.floor((maxLen - selectionText.length) / 2)
+  const head = Math.floor((maxChars - selected.length) / 2)
   const start = Math.max(0, selIdx - head)
-  const end = Math.min(fullText.length, start + maxLen)
+  const end = Math.min(full.length, start + maxChars)
   const prefix = start > 0 ? '…' : ''
-  const suffix = end < fullText.length ? '…' : ''
-  return prefix + fullText.slice(start, end) + suffix
+  const suffix = end < full.length ? '…' : ''
+  return prefix + full.slice(start, end) + suffix
 }
 
-/** 向上找最近的 文章/章节 容器（article/section/main，或最近的标题层级） */
-function nearestSectionElement(node: Node | null): HTMLElement {
-  const block = nearestBlockElement(node)
-  let el = block
-  while (el && el.tagName !== 'BODY') {
-    if (['ARTICLE', 'SECTION', 'MAIN'].includes(el.tagName)) return el
-    // 走到标题时，把"标题 + 其后的兄弟内容"视为一个章节
-    if (/^H[1-6]$/.test(el.tagName) && el.parentElement) return el.parentElement
-    el = el.parentElement
+/** 段落分类（纯函数）：定位包含选中文本的段，划分 before/current/after */
+export function classifyParagraphs(
+  paragraphs: string[],
+  selected: string,
+): { before: string[]; current: string[]; after: string[] } {
+  if (paragraphs.length === 0) return { before: [], current: [selected], after: [] }
+
+  let currentIdx = paragraphs.findIndex((p) => p.includes(selected))
+  if (currentIdx === -1) {
+    // 选中文本不在任何段落里（极端情况）：按字符位置就近
+    currentIdx = 0
+    let best = Infinity
+    paragraphs.forEach((p, i) => {
+      const d = Math.abs(p.indexOf(selected.slice(0, 20)))
+      if (d < best) {
+        best = d
+        currentIdx = i
+      }
+    })
   }
-  return document.body
+  return {
+    before: paragraphs.slice(0, currentIdx),
+    current: [paragraphs[currentIdx]!],
+    after: paragraphs.slice(currentIdx + 1),
+  }
 }
 
-/** 读取一个元素的可读文本（跳过隐藏元素与脚本/样式） */
-function elementText(el: HTMLElement): string {
-  return (el.innerText ?? '').replace(/\s+/g, ' ').trim()
+/** 收集某元素下"可读块"的段落文本（跳过 script/style/隐藏） */
+function collectBlockTexts(container: HTMLElement): string[] {
+  const out: string[] = []
+  for (const child of container.children) {
+    if (!(child instanceof HTMLElement)) continue
+    if (!BLOCK_TAGS.has(child.tagName)) continue
+    if (!isReadableElement(child)) continue
+    const t = elementText(child)
+    if (t) out.push(t)
+  }
+  return out
+}
+
+/** 从 DOM 提取段落结构（选区所在块 + 前后兄弟块；section/article 用容器内全部块） */
+function extractParagraphs(
+  anchor: Node | null,
+  level: ContextLevel,
+  selected: string,
+): { before: string[]; current: string[]; after: string[] } {
+  if (level === 'selection') return { before: [], current: [selected], after: [] }
+
+  let container: HTMLElement
+  if (level === 'nearby') {
+    // 选区所在块 + 同容器的前后兄弟块
+    const block = nearestBlockElement(anchor)
+    container = block?.parentElement ?? document.body
+  } else if (level === 'section') {
+    container = nearestSectionElement(anchor)
+  } else {
+    container = document.body
+  }
+
+  return classifyParagraphs(collectBlockTexts(container), selected)
+}
+
+/** 由快照 + 级别构建上下文（段落语义） */
+export function buildContext(snapshot: SelectionSnapshot, level: ContextLevel): ContextSnapshot {
+  const selected = snapshot.text
+  const anchor = snapshot.range ? snapshot.range.startContainer : null
+  const paragraphs = extractParagraphs(anchor, level, selected)
+
+  const budget = CONTEXT_LIMITS[level]
+  const currentText = applyBudget(
+    [...paragraphs.before, ...paragraphs.current, ...paragraphs.after],
+    selected,
+    budget,
+  )
+
+  return { selected, paragraphs, text: currentText }
 }
 
 /**
- * 根据上下文级别组装 SelectionPayload。
- * 调用方（content.ts）在用户点击 Action 时调用。
- *
- * @param range 选区快照。为什么传 Range 而不是读 window.getSelection()？
- *   因为用户点击菜单按钮时，页面脚本可能已经清掉了当前选区
- *   （很多站点在 mousedown 里 clearSelection），
- *   菜单弹出那一刻快照 Range，点击 Action 时用快照，内容才不会丢。
+ * 兼容入口：由 Range 快照直接构建 SelectionPayload。
+ * （content.tsx 在用户点击 Action 时用快照 Range 调用，避免选区被页面清除）
  */
 export function buildSelectionPayload(level: ContextLevel, range?: Range): SelectionPayload | null {
-  const r =
-    range ?? (window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null)
-  const raw = (r?.toString() ?? '').trim()
-  if (!raw || raw.length === 0) return null
+  const sel = window.getSelection()
+  const snapshot = range
+    ? (() => {
+        const text = normalizeText(range.toString())
+        if (!text) return null
+        const rect = range.getBoundingClientRect()
+        if (rect.width === 0 && rect.height === 0) return null
+        return {
+          text,
+          range: snapshotRange(range),
+          rect,
+          source: 'web' as const,
+          metadata: {},
+        }
+      })()
+    : snapshotFromSelection(sel)
+  if (!snapshot) return null
 
-  const limit = LIMITS[level]
-  const anchor = r?.commonAncestorContainer ?? null
-  let context = raw
-
-  if (level === 'nearby') {
-    const block = nearestBlockElement(anchor)
-    context = block ? centerWindow(elementText(block), raw, limit) : raw
-  } else if (level === 'section') {
-    const section = nearestSectionElement(anchor)
-    context = centerWindow(elementText(section), raw, limit)
-  } else if (level === 'article') {
-    context = centerWindow(elementText(document.body), raw, limit)
-  }
-
+  const ctx = buildContext(snapshot, level)
   return {
-    text: raw.slice(0, LIMITS.selection),
-    context,
+    text: ctx.selected.slice(0, CONTEXT_LIMITS.selection),
+    context: ctx.text,
     url: location.href,
     title: document.title,
   }

@@ -19,7 +19,10 @@ import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, PublicSetti
 import type { CollectionEntryInput } from '@/core/messaging'
 import { collectActions } from '@/actions/manager'
 import { createRunClient, type RunClient } from '@/core/runClient'
-import { buildSelectionPayload, hasUsableSelection } from '@/selection/context'
+import { buildContext, hasUsableSelection } from '@/selection/context'
+import { createDefaultController, type SelectionController } from '@/selection/controller'
+import type { SelectionSnapshot } from '@/selection/types'
+import { snapshotFromSelection } from '@/selection/snapshot'
 import { FloatingMenu } from '@/components/FloatingMenu'
 import { ResultPanel, type PanelState } from '@/components/ResultPanel'
 import { PANEL_WIDTH, menuPosition, panelPosition, type PanelPosition } from '@/components/position'
@@ -81,6 +84,9 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
   // 不可变/跨渲染数据放 ref：快照的 Range、统一 RunClient、最后一次请求（重试用）
   const rangeRef = useRef<Range | null>(null)
+  /** 最近一次有效选区快照（input 选区无 Range，用快照兜底） */
+  const lastSnapshotRef = useRef<SelectionSnapshot | null>(null)
+  const controllerRef = useRef<SelectionController>(createDefaultController())
   const runClientRef = useRef<RunClient | null>(null)
   const requestRef = useRef<RunRequest | null>(null)
   /** 当前任务的原文（收藏唯一性判断用） */
@@ -154,15 +160,24 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   /** 弹菜单的判定：有可用选区 + 面板未打开（MVP：一次只处理一个任务） */
   async function maybeShowMenu() {
     if (panel) return
-    if (!hasUsableSelection()) return
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) return
 
     // 每次划词前刷新公开设置：设置改动（新增 Action/改上下文）即时生效，无需刷新网页
     await reloadContentContext()
 
-    // 快照 Range：用户点菜单时选区可能已被页面清掉
-    rangeRef.current = sel.getRangeAt(0).cloneRange()
+    // 统一入口：Input 优先（输入框划词），其次网页正文（含 Shadow DOM）
+    const snap = controllerRef.current.read()
+    if (!snap) return
+    lastSnapshotRef.current = snap
+
+    // 快照 Range：用户点菜单时选区可能已被页面清掉（web 来源才有 Range）
+    if (snap.range) {
+      const r = document.createRange()
+      r.setStart(snap.range.startContainer, snap.range.startOffset)
+      r.setEnd(snap.range.endContainer, snap.range.endOffset)
+      rangeRef.current = r
+    } else {
+      rangeRef.current = null
+    }
     debug('selection', getAnchorRect())
 
     const rect = getAnchorRect()
@@ -179,10 +194,17 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
    */
   function getAnchorRect(): DOMRect | null {
     const range = rangeRef.current
-    if (!range) return null
-    const rect = range.getBoundingClientRect()
-    if (rect.width === 0 && rect.height === 0) return null
-    return rect
+    if (range) {
+      const rect = range.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) return rect
+    }
+    // input/textarea 来源无 Range：用输入框元素矩形（滚动跟随同样有效）
+    const inputEl = lastSnapshotRef.current?.metadata.inputElement
+    if (inputEl) {
+      const rect = inputEl.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) return rect
+    }
+    return null
   }
 
   /* ---------- 任务执行（Port 生命周期） ---------- */
@@ -208,12 +230,24 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
     }
   }
 
-  /** 从快照 Range 构建 payload（拿不到快照则返回 null） */
+  /** 从选区快照 + ContextBuilder 构建 payload（来源无关：网页 / input / Shadow DOM） */
   function currentPayload(): SelectionPayload {
-    const payload = buildSelectionPayload(contextLevel, rangeRef.current ?? undefined)
-    if (!payload) throw new Error('选区内容已失效，请重新选择')
-    sourceTextRef.current = payload.text
-    return payload
+    const snap = lastSnapshotRef.current
+    if (!snap) {
+      // 兜底：直接读当前选区（正常路径 alwaysShowMenu 已保存快照）
+      const live = snapshotFromSelection(window.getSelection())
+      if (!live) throw new Error('选区内容已失效，请重新选择')
+      lastSnapshotRef.current = live
+    }
+    const s = lastSnapshotRef.current!
+    const ctx = buildContext(s, contextLevel)
+    sourceTextRef.current = s.text
+    return {
+      text: s.text.slice(0, 8_000),
+      context: ctx.text,
+      url: location.href,
+      title: document.title,
+    }
   }
 
   function runRequest(request: RunRequest) {

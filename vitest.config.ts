@@ -15,7 +15,8 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'node',
+    // 默认 happy-dom：Selection 相关测试需要 document；纯逻辑测试不受影响
+    environment: 'happy-dom',
     include: ['tests/**/*.test.{ts,tsx}'],
   },
 })

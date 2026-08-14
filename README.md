@@ -187,3 +187,20 @@ npm run icons        # 从 assets/icon.svg 重新生成图标（需 Playwright�
 ### License
 
 MIT
+
+---
+
+## 架构（v0.5 Selection Core）
+
+所有文字来源统一收敛为 **SelectionSnapshot**，AI 链路完全不知道文字从哪来：
+
+```
+WebSelectionSource ─┐
+InputSelectionSource├→ SelectionSnapshot → ContextBuilder → Action → RunClient → Provider → Result
+PdfSelectionSource ─┘
+```
+
+- `selection/`：快照模型、跨 Shadow DOM 遍历、语义段落上下文（before/current/after）
+- `core/runClient.ts`：网页 / PDF / 输入框共用同一条执行链路（requestId 防串流 + 状态机）
+- `core/runErrors.ts`：结构化错误（code / 动作按钮），不再是一行红字
+- 输入框（input/textarea）内划词同样可用翻译/解释/改写
