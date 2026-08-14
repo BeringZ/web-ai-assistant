@@ -20,6 +20,9 @@ export const BUILTIN_ACTIONS: Action[] = [
     id: 'translate',
     name: '翻译',
     builtin: true,
+    icon: 'translate',
+    context: { level: 'nearby' },
+    output: { format: 'plain' },
     prompt: [
       '请将下面的内容翻译成简体中文。',
       '要求：',
@@ -34,6 +37,8 @@ export const BUILTIN_ACTIONS: Action[] = [
     id: 'explain',
     name: '解释',
     builtin: true,
+    icon: 'explain',
+    context: { level: 'nearby' },
     prompt: [
       '请用通俗易懂的语言解释下面的内容。',
       '要求：',
@@ -49,6 +54,8 @@ export const BUILTIN_ACTIONS: Action[] = [
     id: 'summarize',
     name: '总结',
     builtin: true,
+    icon: 'summary',
+    context: { level: 'section' },
     prompt: [
       '请用简洁的要点总结下面的内容。',
       '要求：',
@@ -64,6 +71,9 @@ export const BUILTIN_ACTIONS: Action[] = [
     id: 'rewrite',
     name: '改写',
     builtin: true,
+    icon: 'rewrite',
+    context: { level: 'nearby' },
+    output: { format: 'plain' },
     prompt: [
       '请改写下面的内容。',
       '要求：',
@@ -79,6 +89,7 @@ export const BUILTIN_ACTIONS: Action[] = [
     id: 'ask',
     name: '提问',
     builtin: true,
+    icon: 'question',
     prompt: [
       '下面是用户选中的内容：',
       '',

@@ -392,3 +392,14 @@
 .wa-inline-error .wa-btn {
   align-self: flex-start;
 }
+
+/* ---------------- plain 输出（翻译/改写：不渲染 Markdown 符号） ---------------- */
+
+.wa-plain-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.7;
+}

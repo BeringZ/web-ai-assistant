@@ -2,7 +2,7 @@
   "name": "web-translate",
   "description": "网页翻译助手：选中即问，翻译/解释/总结/改写，接入自有 OpenAI-compatible API",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",

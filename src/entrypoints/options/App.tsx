@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { browser } from 'wxt/browser'
-import type { Action, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, ProviderSettings, PublicSettings } from '@/core/types'
+import type { Action, ActionIcon, CollectionEntry, ContextLevel, DictionaryEntry, PanelCloseMode, ProviderSettings, PublicSettings } from '@/core/types'
 import { CONTEXT_LEVEL_LABELS, PANEL_CLOSE_MODE_LABELS, defaultProviderSettings } from '@/core/types'
 import {
   getCollections,
@@ -28,6 +28,7 @@ import {
 } from '@/core/storage'
 import { ensureOriginAccess } from '@/core/permissions'
 import { collectActions, createCustomAction } from '@/actions/manager'
+import { ACTION_TEMPLATES } from '@/actions/templates'
 import { BUILTIN_WORDS } from '@/dictionary'
 import {
   downloadJson,
@@ -38,6 +39,48 @@ import {
 } from '@/core/importExport'
 import { Markdown } from '@/components/markdown'
 import type { BackgroundToOptions } from '@/core/messaging'
+
+
+/** Action v2 元数据字段（图标 / 上下文 / 输出格式），创建与编辑共用 */
+const ACTION_V2_FIELDS = (props: {
+  icon: ActionIcon | ''
+  contextLevel: ContextLevel | ''
+  format: 'markdown' | 'plain' | ''
+  setIcon: (v: ActionIcon | '') => void
+  setContextLevel: (v: ContextLevel | '') => void
+  setFormat: (v: 'markdown' | 'plain' | '') => void
+}) => (
+  <div className="v2-fields">
+    <label className="field">
+      <span>图标</span>
+      <select value={props.icon} onChange={(e) => props.setIcon(e.target.value as ActionIcon | '')}>
+        <option value="">默认</option>
+        <option value="translate">翻译</option>
+        <option value="explain">解释</option>
+        <option value="summary">总结</option>
+        <option value="rewrite">改写</option>
+        <option value="question">提问</option>
+        <option value="custom">自定义</option>
+      </select>
+    </label>
+    <label className="field">
+      <span>上下文</span>
+      <select value={props.contextLevel} onChange={(e) => props.setContextLevel(e.target.value as ContextLevel | '')}>
+        <option value="">跟随全局</option>
+        {Object.keys(CONTEXT_LEVEL_LABELS).map((l) => (
+          <option key={l} value={l}>{CONTEXT_LEVEL_LABELS[l as ContextLevel]}</option>
+        ))}
+      </select>
+    </label>
+    <label className="field">
+      <span>输出</span>
+      <select value={props.format} onChange={(e) => props.setFormat(e.target.value as 'markdown' | 'plain' | '')}>
+        <option value="">Markdown</option>
+        <option value="plain">纯文本</option>
+      </select>
+    </label>
+  </div>
+)
 
 type TestResult = Extract<BackgroundToOptions, { type: 'test-result' }>
 
@@ -119,6 +162,9 @@ export function SettingsPanel() {
   const [editName, setEditName] = useState('')
   const [editPrompt, setEditPrompt] = useState('')
   const [creating, setCreating] = useState(false)
+  const [editIcon, setEditIcon] = useState<ActionIcon | ''>('')
+  const [editContextLevel, setEditContextLevel] = useState<ContextLevel | ''>('')
+  const [editFormat, setEditFormat] = useState<'markdown' | 'plain' | ''>('')
 
   const startEdit = (id: string, builtin: boolean) => {
     const action = allActions.find((a) => a.id === id)
@@ -126,6 +172,21 @@ export function SettingsPanel() {
     setEditing({ id, builtin })
     setEditName(action.name)
     setEditPrompt(action.prompt)
+    // 内置操作的可编辑范围只有 name/prompt（icon/context/output 在代码里）
+    setEditIcon(builtin ? '' : (action.icon ?? ''))
+    setEditContextLevel(builtin ? '' : (action.context?.level ?? ''))
+    setEditFormat(builtin ? '' : (action.output?.format ?? ''))
+  }
+
+  /** 从模板填充（创建模式） */
+  const applyTemplate = (templateId: string) => {
+    const t = ACTION_TEMPLATES.find((x) => x.id === templateId)
+    if (!t) return
+    setEditName(t.name)
+    setEditPrompt(t.prompt)
+    setEditIcon(t.icon)
+    setEditContextLevel(t.context?.level ?? '')
+    setEditFormat(t.output?.format ?? '')
   }
 
   const saveEdit = () => {
@@ -135,7 +196,18 @@ export function SettingsPanel() {
       setOverrides((o) => ({ ...o, [editing.id]: { name: editName.trim(), prompt: editPrompt } }))
     } else {
       setCustomActions((list) =>
-        list.map((a) => (a.id === editing.id ? { ...a, name: editName.trim(), prompt: editPrompt } : a)),
+        list.map((a) =>
+          a.id === editing.id
+            ? {
+                ...a,
+                name: editName.trim(),
+                prompt: editPrompt,
+                ...(editIcon ? { icon: editIcon } : {}),
+                ...(editContextLevel ? { context: { level: editContextLevel } } : {}),
+                ...(editFormat ? { output: { format: editFormat } } : {}),
+              }
+            : a,
+        ),
       )
     }
     setEditing(null)
@@ -144,11 +216,18 @@ export function SettingsPanel() {
   /** 新建自定义 Action（创建模式下 editing 为 null，不能复用 saveEdit） */
   const saveCreate = () => {
     if (!editName.trim() || !editPrompt.trim()) return
-    const action = createCustomAction(editName, editPrompt)
+    const action = createCustomAction(editName, editPrompt, {
+      icon: editIcon || undefined,
+      contextLevel: editContextLevel || undefined,
+      format: editFormat || undefined,
+    })
     setCustomActions((list) => [...list, action])
     setCreating(false)
     setEditName('')
     setEditPrompt('')
+    setEditIcon('')
+    setEditContextLevel('')
+    setEditFormat('')
   }
 
   const resetBuiltin = (id: string) => {
@@ -165,6 +244,9 @@ export function SettingsPanel() {
     setEditing(null)
     setEditName('')
     setEditPrompt('')
+    setEditIcon('')
+    setEditContextLevel('')
+    setEditFormat('')
   }
 
   const removeAction = (id: string) =>
@@ -362,6 +444,15 @@ export function SettingsPanel() {
         {creating && (
           <div className="edit-form">
             <label className="field">
+              <span>从模板开始（可选）</span>
+              <select value="" onChange={(e) => applyTemplate(e.target.value)}>
+                <option value="">— 选择模板 —</option>
+                {ACTION_TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}：{t.description}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
               <span>名称</span>
               <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="例如：分析投资含义" />
             </label>
@@ -374,6 +465,14 @@ export function SettingsPanel() {
                 rows={4}
               />
             </label>
+            {ACTION_V2_FIELDS({
+              icon: editIcon,
+              contextLevel: editContextLevel,
+              format: editFormat,
+              setIcon: setEditIcon,
+              setContextLevel: setEditContextLevel,
+              setFormat: setEditFormat,
+            })}
             <div className="actions">
               <button type="button" className="btn" onClick={() => setCreating(false)}>取消</button>
               <button type="button" className="btn primary" onClick={saveCreate} disabled={!editName.trim() || !editPrompt.trim()}>
@@ -443,6 +542,14 @@ export function SettingsPanel() {
                   <span>Prompt 模板</span>
                   <textarea value={editPrompt} onChange={(e) => setEditPrompt(e.target.value)} rows={4} />
                 </label>
+                {ACTION_V2_FIELDS({
+                  icon: editIcon,
+                  contextLevel: editContextLevel,
+                  format: editFormat,
+                  setIcon: setEditIcon,
+                  setContextLevel: setEditContextLevel,
+                  setFormat: setEditFormat,
+                })}
                 <div className="actions">
                   <button type="button" className="btn" onClick={() => setEditing(null)}>取消</button>
                   <button type="button" className="btn primary" onClick={saveEdit} disabled={!editName.trim() || !editPrompt.trim()}>

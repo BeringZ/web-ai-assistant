@@ -32,6 +32,9 @@ export const CONTEXT_LEVEL_LABELS: Record<ContextLevel, string> = {
  *   {{title}}      页面标题
  *   {{question}}   仅 Ask Action 使用（用户在输入框里提的问题）
  */
+/** Action 图标（内置枚举，不开放用户上传 SVG） */
+export type ActionIcon = 'translate' | 'explain' | 'summary' | 'rewrite' | 'question' | 'custom'
+
 export interface Action {
   /** 稳定唯一 id；内置 action 固定为 'translate' 等，自定义用随机 uuid */
   id: string
@@ -41,6 +44,20 @@ export interface Action {
   prompt: string
   /** 内置 action 不可编辑/删除 */
   builtin: boolean
+  /** v0.5.1：菜单图标（内置枚举） */
+  icon?: ActionIcon
+  /** v0.5.1：per-action 上下文级别，优先于用户全局设置 */
+  context?: { level?: ContextLevel }
+  /** v0.5.1：输出渲染格式（默认 markdown） */
+  output?: { format?: 'markdown' | 'plain' }
+}
+
+/** 解析生效的上下文级别：Action.context.level → 全局 → 默认 nearby */
+export function resolveContextLevel(
+  action: Action | undefined,
+  globalLevel: ContextLevel | undefined,
+): ContextLevel {
+  return action?.context?.level ?? globalLevel ?? 'nearby'
 }
 
 /** AI Provider 配置（仅存于扩展本地 storage，由 Service Worker 使用） */

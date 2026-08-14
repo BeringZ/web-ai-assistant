@@ -16,6 +16,7 @@ import { browser, type Browser } from 'wxt/browser'
 import { createRoot, type Root } from 'react-dom/client'
 import { useEffect, useRef, useState } from 'react'
 import type { Action, CollectionEntry, ContextLevel, PanelCloseMode, PublicSettings, RunRequest, SelectionPayload } from '@/core/types'
+import { resolveContextLevel } from '@/core/types'
 import type { CollectionEntryInput } from '@/core/messaging'
 import { collectActions } from '@/actions/manager'
 import { createRunClient, type RunClient } from '@/core/runClient'
@@ -226,12 +227,12 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
 
     // ask 动作等用户输入，其余立即开跑
     if (action.id !== 'ask') {
-      runRequest({ actionId: action.id, payload: currentPayload() })
+      runRequest({ actionId: action.id, payload: currentPayload(action) })
     }
   }
 
   /** 从选区快照 + ContextBuilder 构建 payload（来源无关：网页 / input / Shadow DOM） */
-  function currentPayload(): SelectionPayload {
+  function currentPayload(action?: Action): SelectionPayload {
     const snap = lastSnapshotRef.current
     if (!snap) {
       // 兜底：直接读当前选区（正常路径 alwaysShowMenu 已保存快照）
@@ -240,7 +241,9 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
       lastSnapshotRef.current = live
     }
     const s = lastSnapshotRef.current!
-    const ctx = buildContext(s, contextLevel)
+    // Action v2：per-action context.level 优先于全局设置
+    const level = resolveContextLevel(action, contextLevel)
+    const ctx = buildContext(s, level)
     sourceTextRef.current = s.text
     return {
       text: s.text.slice(0, 8_000),
@@ -261,7 +264,7 @@ function AssistantApp({ hostEl }: { hostEl: HTMLElement }) {
   function onAskSubmit(question: string) {
     if (!question.trim()) return
     setPanel((p) => (p ? { ...p, status: 'streaming', question } : p))
-    runRequest({ actionId: 'ask', payload: currentPayload(), question })
+    runRequest({ actionId: 'ask', payload: currentPayload(panel?.action), question })
   }
 
   function onRetry() {

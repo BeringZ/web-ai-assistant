@@ -6,7 +6,7 @@
  * - 自定义 Action 的增删改只操作 chrome.storage（经 storage 层）
  * Content Script 无需知道区别 —— 对 UI 来说它们都是 Action。
  */
-import type { Action, ActionOverride, PublicSettings } from '@/core/types'
+import type { Action, ActionIcon, ActionOverride, ContextLevel, PublicSettings } from '@/core/types'
 import { BUILTIN_ACTIONS } from './builtin'
 
 export type ActionOverrides = PublicSettings['actionOverrides']
@@ -37,11 +37,18 @@ function applyOverride(action: Action, override: ActionOverride | undefined): Ac
 }
 
 /** 新增自定义 action（id 用 uuid，避免与内置冲突） */
-export function createCustomAction(name: string, prompt: string): Action {
+export function createCustomAction(
+  name: string,
+  prompt: string,
+  v2: { icon?: ActionIcon; contextLevel?: ContextLevel; format?: 'markdown' | 'plain' } = {},
+): Action {
   return {
     id: crypto.randomUUID(),
     name: name.trim() || '未命名',
     prompt,
     builtin: false,
+    ...(v2.icon ? { icon: v2.icon } : {}),
+    ...(v2.contextLevel ? { context: { level: v2.contextLevel } } : {}),
+    ...(v2.format ? { output: { format: v2.format } } : {}),
   }
 }

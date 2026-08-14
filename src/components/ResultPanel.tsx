@@ -58,6 +58,8 @@ const ICON = {
 export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAbort, onClose, isFavorite, onToggleFavorite, showFavorite = true }: ResultPanelProps) {
   const [question, setQuestion] = useState('')
   const [copied, setCopied] = useState(false)
+  // Action v2：output.format === 'plain' → 纯文本渲染（翻译/改写），其余走 Markdown
+  const plainMode = panel.action.output?.format === 'plain'
   const [favPulse, setFavPulse] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const userScrolledRef = useRef(false)
@@ -153,8 +155,12 @@ export function ResultPanel({ panel, x, y, maxHeight, onAskSubmit, onRetry, onAb
         )}
 
         {status !== 'ask' && text.length > 0 && (
-          <div className="wa-md">
-            <Markdown text={text} />
+          <div className={`wa-md${plainMode ? ' wa-plain' : ''}`}>
+            {plainMode ? (
+              <pre className="wa-plain-text">{text}</pre>
+            ) : (
+              <Markdown text={text} />
+            )}
             {streaming && <span className="wa-cursor" />}
           </div>
         )}

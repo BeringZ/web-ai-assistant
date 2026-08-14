@@ -509,3 +509,17 @@ input[type='range'] {
   padding-top: 14px;
   border-top: 1px solid var(--border);
 }
+
+/* ---------------- Action v2 元数据字段 ---------------- */
+
+.v2-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .v2-fields {
+    grid-template-columns: 1fr;
+  }
+}
